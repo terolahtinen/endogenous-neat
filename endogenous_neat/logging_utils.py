@@ -1,0 +1,164 @@
+"""Logging and reporting for endogenous NEAT experiments."""
+
+from __future__ import annotations
+
+import csv
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import neat
+import numpy as np
+
+from endogenous_neat.genome import EndogenousGenome
+from endogenous_neat.theta import THETA_FIELD_NAMES
+
+
+class ThetaReporter(neat.reporting.BaseReporter):
+    """Track fitness and theta statistics across generations."""
+
+    def __init__(self):
+        self.fitness_rows: list[dict] = []
+        self.theta_best_rows: list[dict] = []
+        self.theta_population_rows: list[dict] = []
+        self.best_genome = None
+        self.best_fitness = float("-inf")
+
+    def post_evaluate(self, config, population, species, best_genome):
+        fitnesses = [g.fitness for g in population.values() if g.fitness is not None]
+        best_fitness = max(fitnesses) if fitnesses else float("-inf")
+        mean_fitness = float(np.mean(fitnesses)) if fitnesses else float("nan")
+
+        generation = len(self.fitness_rows)
+        self.fitness_rows.append(
+            {
+                "generation": generation,
+                "best_fitness": best_fitness,
+                "mean_fitness": mean_fitness,
+            }
+        )
+
+        if best_fitness > self.best_fitness:
+            self.best_fitness = best_fitness
+            self.best_genome = best_genome
+
+        if isinstance(best_genome, EndogenousGenome):
+            best_theta = best_genome.theta.to_dict()
+            self.theta_best_rows.append(
+                {"generation": generation, **best_theta}
+            )
+
+            vectors = [
+                g.theta.to_vector()
+                for g in population.values()
+                if isinstance(g, EndogenousGenome)
+            ]
+            if vectors:
+                arr = np.array(vectors)
+                means = arr.mean(axis=0)
+                stds = arr.std(axis=0)
+                pop_row = {"generation": generation}
+                for i, name in enumerate(THETA_FIELD_NAMES):
+                    pop_row[f"{name}_mean"] = float(means[i])
+                    pop_row[f"{name}_std"] = float(stds[i])
+                self.theta_population_rows.append(pop_row)
+
+    def write_csv(self, output_dir: Path) -> None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        with (output_dir / "fitness.csv").open("w", newline="") as f:
+            writer = csv.DictWriter(
+                f, fieldnames=["generation", "best_fitness", "mean_fitness"]
+            )
+            writer.writeheader()
+            writer.writerows(self.fitness_rows)
+
+        if self.theta_best_rows:
+            with (output_dir / "theta_best.csv").open("w", newline="") as f:
+                writer = csv.DictWriter(
+                    f, fieldnames=["generation", *THETA_FIELD_NAMES]
+                )
+                writer.writeheader()
+                writer.writerows(self.theta_best_rows)
+
+        if self.theta_population_rows:
+            pop_fields = ["generation"]
+            for name in THETA_FIELD_NAMES:
+                pop_fields.extend([f"{name}_mean", f"{name}_std"])
+            with (output_dir / "theta_population.csv").open("w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=pop_fields)
+                writer.writeheader()
+                writer.writerows(self.theta_population_rows)
+
+    def write_plots(self, output_dir: Path) -> None:
+        if not self.fitness_rows:
+            return
+
+        generations = [row["generation"] for row in self.fitness_rows]
+        best = [row["best_fitness"] for row in self.fitness_rows]
+        mean = [row["mean_fitness"] for row in self.fitness_rows]
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(generations, best, label="best")
+        ax.plot(generations, mean, label="mean")
+        ax.set_xlabel("generation")
+        ax.set_ylabel("fitness")
+        ax.set_title("XOR fitness")
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(output_dir / "fitness.png", dpi=120)
+        plt.close(fig)
+
+        if self.theta_best_rows:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            for name in THETA_FIELD_NAMES:
+                values = [row[name] for row in self.theta_best_rows]
+                ax.plot(generations[: len(values)], values, label=name)
+            ax.set_xlabel("generation")
+            ax.set_ylabel("theta value")
+            ax.set_title("Best genome theta")
+            ax.legend(fontsize=7, ncol=2)
+            fig.tight_layout()
+            fig.savefig(output_dir / "theta_best.png", dpi=120)
+            plt.close(fig)
+
+    def write_summary(
+        self,
+        output_dir: Path,
+        mode: str,
+        generations: int,
+        fitness_threshold: float,
+    ) -> None:
+        solved = self.best_fitness >= fitness_threshold
+        lines = [
+            "Endogenous NEAT XOR experiment summary",
+            "======================================",
+            f"mode: {mode}",
+            f"generations: {generations}",
+            f"fitness threshold: {fitness_threshold}",
+            f"best fitness: {self.best_fitness:.6f}",
+            f"XOR solved: {'yes' if solved else 'no'}",
+            "",
+        ]
+
+        if isinstance(self.best_genome, EndogenousGenome):
+            lines.append("Final best genome theta:")
+            for name, value in self.best_genome.theta.to_dict().items():
+                lines.append(f"  {name}: {value:.6f}")
+            lines.append("")
+            lines.append(
+                "Theta evolved via inheritance, mutation, selection, "
+                "and (in meta-theta mode) network meta-outputs between generations."
+            )
+        else:
+            lines.append(
+                "Standard NEAT mode: fixed global mutation parameters; "
+                "9-output topology with fitness from output[0] only."
+            )
+
+        lines.append("")
+        lines.append(
+            "This is weak endogeneity / self-adaptive NEAT — reproduction "
+            "machinery is still external."
+        )
+
+        (output_dir / "summary.txt").write_text("\n".join(lines) + "\n")

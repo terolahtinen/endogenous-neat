@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "endogenous-neat"
+version = "0.1.0"
+description = "Weak endogenous-parameter NEAT research prototype"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "matplotlib",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["endogenous_neat*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

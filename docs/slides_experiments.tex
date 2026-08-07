@@ -1,0 +1,533 @@
+\documentclass[aspectratio=169,11pt]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc}
+
+\title{Weak Endogenous NEAT:\\Experiments and Results}
+\subtitle{Setup, terminology, and comparison of modes}
+\author{Endogenous-Parameter NEAT prototype}
+\date{\today}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Outline}
+  \tableofcontents
+\end{frame}
+
+%----------------------------------------------------------------------
+\section{Motivation and terminology}
+%----------------------------------------------------------------------
+
+\begin{frame}{Classical NEAT in one slide}
+  \textbf{NEAT} (NeuroEvolution of Augmenting Topologies) evolves neural networks by
+  mutating \emph{topology} and \emph{weights}.
+
+  \vspace{0.8em}
+  Classical description:
+  \[
+    G_t = (A_t,\, w_t),\qquad
+    G_{t+1} = M_{\mathrm{NEAT}}(G_t;\,\lambda)
+  \]
+  \begin{itemize}
+    \item $A_t$: network topology (nodes and connections)
+    \item $w_t$: connection weights (and related gene attributes)
+    \item $\lambda$: \textbf{fixed} mutation-control parameters set by the experimenter
+      (in a config file)
+  \end{itemize}
+
+  \vspace{0.5em}
+  Examples of $\lambda$: probability of adding a node, rate/power of weight mutation, \ldots
+\end{frame}
+
+\begin{frame}{What is $\theta$ (theta)?}
+  In this project, \textbf{$\theta$} is a vector of \emph{per-genome}
+  mutation-control parameters---the endogenous analogue of $\lambda$.
+
+  \vspace{0.6em}
+  Weak endogenous NEAT:
+  \[
+    G_t = (A_t,\, w_t,\, \theta_t),\qquad
+    G_{t+1} = M_{\mathrm{NEAT}}(G_t;\,\theta_t)
+  \]
+
+  \begin{block}{Properties of $\theta$}
+    \begin{itemize}
+      \item Encoded in each genome (not only in the global config)
+      \item Inherited at crossover
+      \item Mutated slightly between generations
+      \item Optionally rewritten by network \textbf{meta-outputs} (\texttt{meta-theta} mode)
+      \item Always clipped to fixed bounds
+    \end{itemize}
+  \end{block}
+\end{frame}
+
+\begin{frame}{The eight components of $\theta$}
+  \begin{tabular}{lll}
+    \toprule
+    Field & Role & Typical bounds \\
+    \midrule
+    \texttt{node\_add\_prob} & $P$(add hidden node) & $[0,\,0.5]$ \\
+    \texttt{node\_delete\_prob} & $P$(delete node) & $[0,\,0.5]$ \\
+    \texttt{conn\_add\_prob} & $P$(add connection) & $[0,\,0.8]$ \\
+    \texttt{conn\_delete\_prob} & $P$(delete connection) & $[0,\,0.8]$ \\
+    \texttt{weight\_mutate\_rate} & $P$(mutate a weight) & $[0,\,1]$ \\
+    \texttt{weight\_mutate\_power} & size of weight noise & $[0.001,\,5]$ \\
+    \texttt{bias\_mutate\_rate} & $P$(mutate a bias) & $[0,\,1]$ \\
+    \texttt{enable\_disable\_rate} & $P$(toggle connection) & $[0,\,0.5]$ \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.8em}
+  Defaults match the NEAT config (e.g.\ weight mutate rate $0.8$, power $0.5$).
+\end{frame}
+
+\begin{frame}{Important claim: \emph{weak} endogeneity}
+  \begin{alertblock}{What we claim}
+    Selected \textbf{operator-control parameters} are in the genome, inherited, mutated,
+    selected, and (in one mode) modified by network meta-outputs.
+  \end{alertblock}
+
+  \begin{block}{What we do \emph{not} claim}
+    \begin{itemize}
+      \item Fully self-replicating neural networks
+      \item The network implements its own reproduction algorithm
+      \item Complete endogenous evolution
+    \end{itemize}
+  \end{block}
+
+  Reproduction (selection, crossover, speciation) remains an \textbf{external}
+  NEAT implementation (\texttt{neat-python}).
+\end{frame}
+
+\begin{frame}{Glossary}
+  \begin{description}
+    \item[$\lambda$] Global mutation parameters in the config (classical NEAT).
+    \item[$\theta$] Per-genome mutation parameters (this prototype).
+    \item[Task output] Network output used for fitness (always \texttt{output[0]}).
+    \item[Meta-outputs] Extra outputs \texttt{output[1..8]} that can set $\theta$.
+    \item[Network rewrite] In \texttt{meta-theta}: replace $\theta$ after eval from
+      averaged meta-outputs (full replacement, not a blend).
+    \item[Matched capacity] All modes use the same I/O sizes (fair comparison).
+    \item[Solve] Best fitness reaches a task-specific threshold.
+    \item[Generation] One evaluate $\rightarrow$ reproduce cycle.
+    \item[Run] One independent evolution (own random seed / trajectory).
+  \end{description}
+\end{frame}
+
+%----------------------------------------------------------------------
+\section{Experimental setup}
+%----------------------------------------------------------------------
+
+\begin{frame}{Software stack}
+  \begin{itemize}
+    \item Base library: local fork of \textbf{neat-python} (submodule)
+    \item Prototype package: \texttt{endogenous\_neat}
+    \item Extensions:
+      \begin{itemize}
+        \item \texttt{Theta} dataclass
+        \item \texttt{EndogenousGenome} (extends \texttt{DefaultGenome})
+        \item \texttt{EndogenousReproduction} (thin wrapper)
+      \end{itemize}
+    \item CLI: \texttt{python -m endogenous\_neat.experiment --task \ldots\ --mode \ldots}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Three comparison modes}
+  \begin{center}
+  \begin{tikzpicture}[
+    box/.style={draw,rounded corners,align=center,inner sep=6pt,font=\small},
+    arr/.style={-{Latex},thick}
+  ]
+    \node[box,fill=blue!15] (std) {\textbf{standard}\\fixed $\lambda$\\no $\theta$};
+    \node[box,fill=orange!20,right=1.2cm of std] (inh)
+      {\textbf{inherited-theta}\\$\theta$ in genome\\no meta-update};
+    \node[box,fill=green!20,right=1.2cm of inh] (meta)
+      {\textbf{meta-theta}\\$\theta$ + network rewrite};
+    \draw[arr] (std) -- (inh);
+    \draw[arr] (inh) -- (meta);
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.8em}
+  \begin{itemize}
+    \item \textbf{standard}: classical NEAT; mutation rates from config only
+    \item \textbf{inherited-theta}: $\theta$ inherited \& randomly mutated; network does not write $\theta$
+    \item \textbf{meta-theta}: after evaluation, replace $\theta$ from meta-outputs
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{How $\theta$ is used at mutation time}
+  For endogenous genomes, mutation does \emph{not} permanently overwrite the shared config.
+
+  \vspace{0.5em}
+  \begin{enumerate}
+    \item Build a local copy of the genome config
+    \item Overlay this genome's $\theta$ onto mutation rates
+    \item Call standard NEAT \texttt{mutate} with that local config
+    \item Apply a small random mutation to $\theta$ itself
+  \end{enumerate}
+
+  \vspace{0.5em}
+  Speciation distance also includes a small $\theta$ term
+  (coefficient $0.1$ times $L_1$ distance of $\theta$ vectors).
+\end{frame}
+
+\begin{frame}{Network rewrite in \texttt{meta-theta}}
+  \textbf{Network rewrite} $=$ after evaluating a genome, its $\theta$ is
+  \emph{discarded and replaced} by values computed from the network's extra outputs.
+
+  \vspace{0.6em}
+  Place in the generation loop:
+  \begin{enumerate}
+    \item Build network from genome
+    \item Run the task (XOR cases / cart-pole steps)
+    \item Fitness $\leftarrow$ \texttt{out}$_0$ only
+    \item Meta-outputs $\leftarrow$ average of \texttt{out}$_{1..8}$ over the evaluation
+    \item \alert{\texttt{genome.theta} $\leftarrow$ \texttt{Theta.from\_meta\_outputs(mean\_meta)}}
+    \item Later: reproduction uses that new $\theta$ when mutating offspring
+  \end{enumerate}
+
+  \vspace{0.4em}
+  Step~5 is the rewrite. In \texttt{inherited-theta}, step~5 is skipped.
+\end{frame}
+
+\begin{frame}{What the network outputs mean}
+  All modes use \textbf{9 outputs}; only \texttt{meta-theta} uses heads $1$--$8$ for $\theta$:
+
+  \vspace{0.4em}
+  \begin{tabular}{cl}
+    \toprule
+    Output & Role \\
+    \midrule
+    \texttt{out}$_0$ & Task (XOR answer or pole force) \\
+    \texttt{out}$_1$ & $\rightarrow$ \texttt{node\_add\_prob} \\
+    \texttt{out}$_2$ & $\rightarrow$ \texttt{node\_delete\_prob} \\
+    \texttt{out}$_3$ & $\rightarrow$ \texttt{conn\_add\_prob} \\
+    \texttt{out}$_4$ & $\rightarrow$ \texttt{conn\_delete\_prob} \\
+    \texttt{out}$_5$ & $\rightarrow$ \texttt{weight\_mutate\_rate} \\
+    \texttt{out}$_6$ & $\rightarrow$ \texttt{weight\_mutate\_power} \\
+    \texttt{out}$_7$ & $\rightarrow$ \texttt{bias\_mutate\_rate} \\
+    \texttt{out}$_8$ & $\rightarrow$ \texttt{enable\_disable\_rate} \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+\begin{frame}{Averaging before the rewrite}
+  Meta heads can change on every activation, so they are averaged
+  \textbf{once per genome} after evaluation:
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item \textbf{XOR:} mean of \texttt{out}$_{1..8}$ over the 4 input cases
+    \item \textbf{Pole:} mean of \texttt{out}$_{1..8}$ over all timesteps of all episode runs
+  \end{itemize}
+
+  \vspace{0.5em}
+  Result: one length-$8$ vector \texttt{mean\_meta}.
+  This avoids updating $\theta$ after every single activation in an order-dependent way.
+\end{frame}
+
+\begin{frame}{Mapping meta-outputs $\rightarrow$ $\theta$}
+  Raw network numbers are \emph{not} used as probabilities.
+  Each component $x_i$ is mapped into its legal range $[m_i,M_i]$:
+  \[
+    \theta_i = m_i + \sigma(x_i)\,(M_i - m_i),\qquad
+    \sigma(x)=\frac{1}{1+e^{-x}}
+  \]
+
+  \vspace{0.4em}
+  \begin{itemize}
+    \item $x \approx 0$ $\rightarrow$ mid-range of the bound
+    \item large positive $x$ $\rightarrow$ near maximum
+    \item large negative $x$ $\rightarrow$ near minimum
+  \end{itemize}
+
+  \vspace{0.4em}
+  Then: \texttt{genome.theta = Theta.from\_meta\_outputs(mean\_meta)}\\
+  --- a \textbf{full replacement}, not a blend with the old $\theta$
+  (no residual / $\alpha$-update in Phase~1).
+\end{frame}
+
+\begin{frame}{What network rewrite is \emph{not}}
+  \begin{itemize}
+    \item It does \textbf{not} change network weights or topology at evaluation time
+    \item It does \textbf{not} change how fitness is computed (still only \texttt{out}$_0$)
+    \item It only changes the genome's \textbf{mutation-control vector} $\theta$
+      used in the \textbf{next} reproduction step
+  \end{itemize}
+
+  \vspace{0.6em}
+  \begin{alertblock}{Consequence}
+    $\theta$ inherited from parents can be overwritten every generation.
+    If meta-heads saturate, $\theta$ jumps toward extreme bounds
+    (e.g.\ high \texttt{weight\_mutate\_power}) even when that hurts the task.
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{Matched topology capacity}
+  To compare modes fairly, \textbf{all modes} use the same network I/O layout:
+
+  \begin{itemize}
+    \item XOR: 2 inputs, \textbf{9 outputs}
+    \item Pole: 4 inputs, \textbf{9 outputs}
+  \end{itemize}
+
+  \vspace{0.5em}
+  Layout:
+  \[
+    \underbrace{\texttt{out}_0}_{\text{task}} \;+\;
+    \underbrace{\texttt{out}_{1},\ldots,\texttt{out}_{8}}_{\text{meta / $\theta$}}
+  \]
+
+  \begin{itemize}
+    \item Fitness always uses \texttt{out}$_0$ only
+    \item In \texttt{standard} / \texttt{inherited-theta}, meta heads exist but are ignored
+    \item This controls for ``extra output nodes'', not classical 1-output XOR
+  \end{itemize}
+\end{frame}
+
+%----------------------------------------------------------------------
+\section{Tasks}
+%----------------------------------------------------------------------
+
+\begin{frame}{Task 1: XOR (9-output)}
+  Classic Boolean XOR, but with 9 network outputs.
+
+  \vspace{0.5em}
+  \begin{columns}[t]
+    \begin{column}{0.48\textwidth}
+      \textbf{Inputs / targets}
+      \begin{center}
+      \begin{tabular}{cc}
+        \toprule
+        Input & Target \\
+        \midrule
+        $(0,0)$ & $0$ \\
+        $(0,1)$ & $1$ \\
+        $(1,0)$ & $1$ \\
+        $(1,1)$ & $0$ \\
+        \bottomrule
+      \end{tabular}
+      \end{center}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \textbf{Fitness}
+      \[
+        F = 4 - \sum (\hat y - y)^2
+      \]
+      \textbf{Solved} if $F \ge 3.9$
+
+      \vspace{0.6em}
+      Population size $150$\\
+      Fitness plateau $F\approx 3.0$
+      $\Leftrightarrow$ constant $\sim 0.5$ outputs
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Task 2: Single-pole balancing}
+  Cart--pole control (feedforward), adapted from neat-python examples.
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item \textbf{State} (4 inputs, scaled): cart position, velocity, pole angle, angular velocity
+    \item \textbf{Action}: discrete force from \texttt{out}$_0$ ($+10$ or $-10$)
+    \item \textbf{Fitness}: worst balance time (seconds) over 5 random starts, cap $60\,\mathrm{s}$
+    \item \textbf{Solved} if $F \ge 60.0$
+    \item Population size $250$
+  \end{itemize}
+
+  \vspace{0.5em}
+  Again: 9 outputs total (1 control + 8 meta) in all modes.
+\end{frame}
+
+\begin{frame}{What we measure}
+  Per run (CSV + plots):
+  \begin{itemize}
+    \item Best / mean fitness vs generation
+    \item Best-genome $\theta$ vs generation (endogenous modes)
+    \item Population mean / std of $\theta$
+  \end{itemize}
+
+  \vspace{0.5em}
+  Across modes (\texttt{--mode compare}):
+  \begin{itemize}
+    \item Solve rate (fraction of runs reaching threshold)
+    \item Final best fitness (mean $\pm$ std, median)
+    \item Median first-solve generation (among successful runs)
+    \item Overlay plots of median fitness $\pm$ IQR and $\theta$ trajectories
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Reading the plots carefully}
+  \begin{alertblock}{Early stopping}
+    When fitness hits the threshold, evolution stops.
+    Median fitness curves for successful modes look ``short''---that means
+    \textbf{solved}, not crashed.
+  \end{alertblock}
+
+  \begin{itemize}
+    \item Prefer \textbf{solve rate} and \textbf{time-to-threshold} over truncated median curves
+    \item Median fitness stays near a plateau until $>$ half of runs escape it
+    \item Mixing short smoke tests with long runs in one folder corrupts comparisons
+  \end{itemize}
+\end{frame}
+
+%----------------------------------------------------------------------
+\section{Results}
+%----------------------------------------------------------------------
+
+\begin{frame}{XOR results: \texttt{compare\_200x50}}
+  Setup: \textbf{50 runs} $\times$ up to \textbf{200 generations} $\times$ 3 modes\\
+  (fair, matched 9-output XOR)
+
+  \vspace{0.6em}
+  \begin{tabular}{lrrr}
+    \toprule
+    Mode & Solved & Solve rate & Median first solve \\
+    \midrule
+    standard & $32/50$ & \textbf{64\%} & gen $125$ \\
+    inherited-theta & $19/50$ & 38\% & gen $140$ \\
+    meta-theta & $2/50$ & 4\% & gen $164$ \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.8em}
+  Ranking: \textbf{standard $\gg$ inherited-theta $\gg$ meta-theta}
+\end{frame}
+
+\begin{frame}{XOR: interpretation}
+  \begin{itemize}
+    \item Fitness $\approx 3.0$ is a common local plateau (constant mid-outputs)
+    \item Encoding $\theta$ alone (\texttt{inherited-theta}) \textbf{hurts} vs fixed $\lambda$
+      ($-26$ percentage points solve rate)
+    \item Network-written $\theta$ (\texttt{meta-theta}) hurts much more
+      ($-60$ pp vs standard)
+    \item Meta-$\theta$ drifts toward high \texttt{weight\_mutate\_power} ($\sim 3$)
+      and high enable/disable rate---aggressive mutation on a bad attractor
+  \end{itemize}
+
+  \vspace{0.4em}
+  Valid \textbf{negative result} for Phase-1 weak endogeneity on this XOR setup.
+\end{frame}
+
+\begin{frame}{Pole results: \texttt{pole\_compare2}}
+  Setup: up to \textbf{200 generations}; note uneven $n$ (20 / 10 / 10)
+
+  \vspace{0.6em}
+  \begin{tabular}{lrrr}
+    \toprule
+    Mode & Solved & Solve rate & Median first solve \\
+    \midrule
+    standard & $20/20$ & \textbf{100\%} & gen $22.5$ \\
+    inherited-theta & $10/10$ & \textbf{100\%} & gen $15$ \\
+    meta-theta & $0/10$ & 0\% & --- \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.6em}
+  Meta-theta finals: median $\approx 9.3\,\mathrm{s}$, mean $\approx 14.7\,\mathrm{s}$
+  (best unfinished run $\approx 57.5\,\mathrm{s}$).
+\end{frame}
+
+\begin{frame}{Pole: interpretation}
+  \begin{itemize}
+    \item Cart-pole is much easier for classical NEAT than 9-output XOR
+    \item \texttt{inherited-theta} is \textbf{competitive} (100\% solve; possibly faster)
+    \item \texttt{meta-theta} still fails: same aggressive $\theta$ pattern as on XOR
+    \item Fitness plot understates standard/inherited success (early stopping)
+  \end{itemize}
+
+  \vspace{0.6em}
+  \begin{block}{Cross-task summary}
+    \begin{itemize}
+      \item Inherited $\theta$: harmful on XOR, fine on pole (task-dependent)
+      \item Meta $\theta$: harmful on \textbf{both}
+    \end{itemize}
+  \end{block}
+\end{frame}
+
+\begin{frame}{What $\theta$ does under meta-theta}
+  Across tasks, best-genome meta-$\theta$ consistently shifts toward:
+
+  \begin{center}
+  \begin{tabular}{lcc}
+    \toprule
+    Parameter & Default / inherited & Meta-theta tendency \\
+    \midrule
+    \texttt{weight\_mutate\_power} & $\sim 0.5$ & $\sim 2.5$--$3.5$ \\
+    \texttt{enable\_disable\_rate} & $\sim 0.01$ & $\sim 0.25$--$0.35$ \\
+    \texttt{node\_add/delete\_prob} & $\sim 0.2$ & higher ($\sim 0.3$) \\
+    \texttt{weight\_mutate\_rate} & $\sim 0.8$ & often lower \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+
+  \vspace{0.6em}
+  $\theta$ \emph{is evolving}---but not in a way that improves task fitness here.
+\end{frame}
+
+%----------------------------------------------------------------------
+\section{Conclusions}
+%----------------------------------------------------------------------
+
+\begin{frame}{Conclusions}
+  \begin{enumerate}
+    \item Prototype implements \textbf{weak endogeneity}: per-genome $\theta$, three modes,
+      XOR + pole, automated comparisons.
+    \item On matched-capacity XOR, classical NEAT outperforms endogenous modes.
+    \item On pole, inherited $\theta$ matches classical success; meta-$\theta$ does not.
+    \item Meta-output replacement of $\theta$ appears misaligned with escaping plateaus
+      (over-aggressive mutation).
+  \end{enumerate}
+
+  \vspace{0.6em}
+  Possible next steps (not claimed here): residual $\theta$ updates, tighter bounds on
+  mutation power, task-only vs matched-capacity ablations, harder control/memory tasks.
+\end{frame}
+
+\begin{frame}{How to reproduce}
+  \begin{verbatim}
+# XOR comparison
+python -m endogenous_neat.experiment \
+  --task xor --mode compare \
+  --generations 200 --runs 50 \
+  --output-dir runs/xor_compare/
+
+# Pole comparison
+python -m endogenous_neat.experiment \
+  --task pole --mode compare \
+  --generations 200 --runs 10 \
+  --output-dir runs/pole_compare/
+  \end{verbatim}
+
+  Artifacts under \texttt{<output-dir>/comparison/}:
+  \texttt{compare\_summary.txt}, \texttt{compare\_stats.csv},
+  \texttt{compare\_fitness.png}, \texttt{compare\_theta.png}.
+\end{frame}
+
+\begin{frame}{Thank you}
+  \begin{center}
+    \Large Questions?
+  \end{center}
+
+  \vspace{1.5em}
+  \small
+  Terminology reminder: this is \emph{weak endogeneity} / self-adaptive operator control---not
+  full endogenous or self-replicating NEAT.
+\end{frame}
+
+\end{document}

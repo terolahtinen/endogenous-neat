@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from itertools import count
 from random import Random
 
 import neat
@@ -19,6 +20,28 @@ def apply_theta_to_config(config, theta: Theta):
         config_key = Theta.NEAT_CONFIG_KEYS[field_name]
         setattr(local, config_key, getattr(theta, field_name))
     return local
+
+
+def sync_node_indexer(config, node_dict) -> None:
+    """Advance config.node_indexer past keys already present in node_dict.
+
+    Genomes can acquire high node IDs via crossover/innovation while the shared
+    indexer lags behind. neat-python's get_new_node_key then asserts
+    ``new_id not in node_dict``. Advance (and rebind) the indexer so the next
+    allocated key is unused in this genome.
+    """
+    max_id = max(node_dict) if node_dict else -1
+    start_at = max(max_id + 1, getattr(config, "num_outputs", 0))
+    if getattr(config, "node_indexer", None) is None:
+        config.node_indexer = count(start_at)
+        return
+
+    while True:
+        candidate = next(config.node_indexer)
+        if candidate > max_id:
+            # Rebind so the chosen candidate is the next yielded value.
+            config.node_indexer = count(candidate)
+            return
 
 
 class EndogenousGenome(neat.DefaultGenome):
@@ -46,6 +69,9 @@ class EndogenousGenome(neat.DefaultGenome):
     def mutate(self, config):
         # Use this genome's theta for structural and attribute mutation rates.
         local_config = apply_theta_to_config(config, self.theta)
+        sync_node_indexer(local_config, self.nodes)
+        # Propagate indexer rebinding to the shared population config.
+        config.node_indexer = local_config.node_indexer
         super().mutate(local_config)
         self.theta = self.theta.mutated(Random())
 

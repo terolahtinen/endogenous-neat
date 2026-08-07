@@ -19,7 +19,9 @@ This is a **stepping stone** toward full endogenous NEAT, not a self-replicating
 - `Theta` dataclass with bounds, mutation, crossover, and meta-output mapping
 - `EndogenousGenome` extending `neat.DefaultGenome`
 - `EndogenousReproduction` (thin wrapper over `DefaultReproduction`)
-- XOR experiment with three comparison modes
+- Tasks: **XOR** (default) and **single-pole balancing**, selected with `--task`
+- Three comparison modes per task (`standard` / `inherited-theta` / `meta-theta`)
+- `--mode compare` overlay plots and solve-rate summary across modes
 - CSV logging, plots, and pytest tests
 
 ## What is not implemented
@@ -28,6 +30,7 @@ This is a **stepping stone** toward full endogenous NEAT, not a self-replicating
 - TensorNEAT, HyperNEAT, CoDeepNEAT
 - Residual theta blending (only full meta-output replacement)
 - Full neat-python checkpoint integration
+- Double pendulum, memory, or CTRNN tasks
 
 ## Installation
 
@@ -81,24 +84,85 @@ After updating the submodule, reinstall the editable package:
 pip install -e ./neat-python
 ```
 
-## Running the XOR experiment
+## Tasks
 
-All modes use the same 9-output config (`configs/xor-endogenous.cfg`): output 0 is XOR fitness; outputs 1–8 are meta-outputs (used only in `meta-theta` mode).
+Select a task with `--task` (default `xor`). Prefer the unified entry point:
 
 ```bash
-# Standard NEAT baseline (fixed global λ, meta outputs ignored)
-python -m endogenous_neat.experiment_xor --mode standard --generations 100 --runs 1
-
-# Endogenous theta: inherited and mutated, no meta-update
-python -m endogenous_neat.experiment_xor --mode inherited-theta --generations 100 --runs 1
-
-# Endogenous theta + network meta-output update
-python -m endogenous_neat.experiment_xor --mode meta-theta --generations 100 --runs 10 --output-dir runs/
+python -m endogenous_neat.experiment --task xor ...
+python -m endogenous_neat.experiment --task pole ...
 ```
+
+`python -m endogenous_neat.experiment_xor` still works and defaults to XOR.
+
+### XOR
+
+Config: `configs/xor-endogenous.cfg`
+
+- Inputs: 2
+- Outputs: 9 (output 0 = XOR answer; outputs 1–8 = meta / θ)
+- Solved when fitness ≥ 3.9
+
+```bash
+python -m endogenous_neat.experiment --task xor --mode standard --generations 100 --runs 1
+python -m endogenous_neat.experiment --task xor --mode inherited-theta --generations 100 --runs 1
+python -m endogenous_neat.experiment --task xor --mode meta-theta --generations 100 --runs 10 --output-dir runs/xor/
+```
+
+### Single-pole balancing
+
+Config: `configs/pole-endogenous.cfg`
+
+- Inputs: 4 (scaled cart-pole state)
+- Outputs: 9 (output 0 = discrete force; outputs 1–8 = meta / θ)
+- Fitness: worst balance time (seconds) across 5 random starts, capped at 60 s
+- Solved when fitness ≥ 60.0
+
+All modes share the same 9-output layout (matched topology capacity). In `standard` and `inherited-theta`, meta heads exist but are ignored for θ updates.
+
+```bash
+python -m endogenous_neat.experiment --task pole --mode standard --generations 100 --runs 1
+python -m endogenous_neat.experiment --task pole --mode meta-theta --generations 200 --runs 5 \
+  --output-dir runs/pole/
+```
+
+### Compare modes (standard vs weak endogenous)
+
+Run all three modes with the same settings and write overlay comparison plots. Use a **task-specific** `--output-dir` so XOR and pole runs do not mix:
+
+```bash
+python -m endogenous_neat.experiment \
+  --task xor \
+  --mode compare \
+  --generations 100 \
+  --runs 10 \
+  --output-dir runs/xor_compare/
+
+python -m endogenous_neat.experiment \
+  --task pole \
+  --mode compare \
+  --generations 200 \
+  --runs 10 \
+  --output-dir runs/pole_compare/
+```
+
+This runs `standard`, `inherited-theta`, and `meta-theta`, then writes comparison artifacts under `<output-dir>/comparison/`.
+
+To rebuild comparison plots from existing run directories without re-evolving:
+
+```bash
+python -m endogenous_neat.experiment --task pole --compare-only --output-dir runs/pole_compare/
+```
+
+| Comparison | Question it answers |
+|------------|---------------------|
+| standard vs inherited-theta | Does per-genome θ help vs fixed global λ? |
+| inherited-theta vs meta-theta | Do network meta-output θ updates help or hurt? |
+| standard vs meta-theta | Overall weak endogenous NEAT vs classical NEAT |
 
 ## Output files
 
-Each run writes to `runs/<timestamp>_run<N>_<mode>/`:
+Each run writes to `runs/<timestamp>_run<N>_<mode>/` (or under your `--output-dir`):
 
 | File | Contents |
 |------|----------|
@@ -108,15 +172,26 @@ Each run writes to `runs/<timestamp>_run<N>_<mode>/`:
 | `fitness.png` | Fitness plot |
 | `theta_best.png` | Best θ trajectories |
 | `best_genome.pkl` | Pickled best genome |
-| `summary.txt` | Whether XOR was solved and final θ |
+| `summary.txt` | Whether the task was solved and final θ |
+| `run_meta.txt` | task, mode, generations, config |
 
-XOR is considered solved when fitness ≥ 3.9.
+`--mode compare` / `--compare-only` also write to `<output-dir>/comparison/`:
+
+| File | Contents |
+|------|----------|
+| `compare_fitness.png` | Median best-fitness ± IQR overlay for all modes |
+| `compare_theta.png` | Best-genome θ trajectories for endogenous modes |
+| `compare_summary.txt` | Solve rates and final fitness stats per mode |
+| `compare_stats.csv` | Same stats in CSV form |
+
+Solve thresholds: XOR ≥ 3.9; pole ≥ 60.0.
 
 ## Interpreting logs
 
-- **fitness.csv**: task performance; compare across modes with the same 9-output topology.
+- **fitness.csv**: task performance; compare across modes with the same matched-capacity topology.
 - **theta_best.csv / theta_population.csv**: how endogenous parameters drift under selection and (in meta-theta mode) meta-output pressure.
 - If population θ std collapses toward bounds, meta-outputs may be saturating — compare with `inherited-theta` to isolate meta-update effects.
+- **compare_fitness.png**: side-by-side learning curves; higher median and earlier threshold crossing favor a mode.
 
 ## Tests
 

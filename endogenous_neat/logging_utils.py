@@ -127,16 +127,18 @@ class ThetaReporter(neat.reporting.BaseReporter):
         mode: str,
         generations: int,
         fitness_threshold: float,
+        task: str = "xor",
     ) -> None:
         solved = self.best_fitness >= fitness_threshold
         lines = [
-            "Endogenous NEAT XOR experiment summary",
-            "======================================",
+            "Endogenous NEAT experiment summary",
+            "==================================",
+            f"task: {task}",
             f"mode: {mode}",
             f"generations: {generations}",
             f"fitness threshold: {fitness_threshold}",
             f"best fitness: {self.best_fitness:.6f}",
-            f"XOR solved: {'yes' if solved else 'no'}",
+            f"solved: {'yes' if solved else 'no'}",
             "",
         ]
 

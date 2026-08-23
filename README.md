@@ -99,7 +99,7 @@ python -m endogenous_neat.experiment --task pole ...
 
 Config: `configs/xor-endogenous.cfg`
 
-- Inputs: 2
+- Inputs: **10** (2 XOR bits + 8 normalized current θ)
 - Outputs: 9 (output 0 = XOR answer; outputs 1–8 = meta / θ)
 - Solved when fitness ≥ 3.9
 
@@ -113,12 +113,12 @@ python -m endogenous_neat.experiment --task xor --mode meta-theta --generations 
 
 Config: `configs/pole-endogenous.cfg`
 
-- Inputs: 4 (scaled cart-pole state)
+- Inputs: **12** (4 scaled cart-pole state + 8 normalized current θ)
 - Outputs: 9 (output 0 = discrete force; outputs 1–8 = meta / θ)
 - Fitness: worst balance time (seconds) across 5 random starts, capped at 60 s
 - Solved when fitness ≥ 60.0
 
-All modes share the same 9-output layout (matched topology capacity). In `standard` and `inherited-theta`, meta heads exist but are ignored for θ updates.
+All modes share the same I/O layout (matched topology capacity): task inputs + θ inputs, and 9 outputs. In `standard`, θ inputs are the fixed config defaults. In `inherited-theta` / `meta-theta`, θ inputs track `genome.theta`; after a meta rewrite, the next evaluation uses the updated values. In `standard` and `inherited-theta`, meta heads exist but are ignored for θ updates.
 
 ```bash
 python -m endogenous_neat.experiment --task pole --mode standard --generations 100 --runs 1
@@ -204,6 +204,7 @@ pytest tests/ -v
 | Aspect | Standard NEAT | Endogenous NEAT |
 |--------|---------------|-----------------|
 | Mutation rates | Global config λ | Per-genome θ (inherited, mutated) |
+| θ as inputs | Fixed defaults (matched capacity) | Live `genome.theta`, normalized to [0, 1] |
 | Meta-outputs | N/A | 8 sigmoid outputs mapped linearly into θ bounds (meta-theta mode) |
 | Speciation distance | Topology/weights only | Adds small θ component |
 | Reproduction | External | Still external |

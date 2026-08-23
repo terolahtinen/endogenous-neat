@@ -118,8 +118,9 @@
     \item[$\theta$] Per-genome mutation parameters (this prototype).
     \item[Task output] Network output used for fitness (always \texttt{output[0]}).
     \item[Meta-outputs] Extra outputs \texttt{output[1..8]} that can set $\theta$.
+    \item[$\theta$ inputs] Current $\theta$, unit-normalized, concatenated to task state.
     \item[Network rewrite] In \texttt{meta-theta}: replace $\theta$ after eval from
-      averaged meta-outputs (full replacement, not a blend).
+      averaged meta-outputs (full replacement, not a blend); next eval sees new $\theta$ inputs.
     \item[Matched capacity] All modes use the same I/O sizes (fair comparison).
     \item[Solve] Best fitness reaches a task-specific threshold.
     \item[Generation] One evaluate $\rightarrow$ reproduce cycle.
@@ -193,15 +194,16 @@
   Place in the generation loop:
   \begin{enumerate}
     \item Build network from genome
-    \item Run the task (XOR cases / cart-pole steps)
+    \item Activate with task state $+$ \emph{current} normalized $\theta$
     \item Fitness $\leftarrow$ \texttt{out}$_0$ only
     \item Meta-outputs $\leftarrow$ average of \texttt{out}$_{1..8}$ over the evaluation
     \item \alert{\texttt{genome.theta} $\leftarrow$ \texttt{Theta.from\_meta\_outputs(mean\_meta)}}
-    \item Later: reproduction uses that new $\theta$ when mutating offspring
+    \item Later activates / next generation use the updated $\theta$ as inputs
   \end{enumerate}
 
   \vspace{0.4em}
-  Step~5 is the rewrite. In \texttt{inherited-theta}, step~5 is skipped.
+  Step~5 is the rewrite. In \texttt{inherited-theta}, step~5 is skipped
+  (but $\theta$ inputs still track the inherited/mutated genome $\theta$).
 \end{frame}
 
 \begin{frame}{What the network outputs mean}
@@ -258,8 +260,25 @@
 
   \vspace{0.4em}
   Then: \texttt{genome.theta = Theta.from\_meta\_outputs(mean\_meta)}\\
-  --- a \textbf{full replacement}, not a blend with the old $\theta$
-  (no residual / $\alpha$-update in Phase~1).
+  --- still a \textbf{full replacement}, not a blend with the old $\theta$
+  (no residual / $\alpha$-update yet).
+
+  \vspace{0.4em}
+  \begin{alertblock}{Earlier bug}
+    First experiments used a \emph{second} sigmoid on already-sigmoid outputs
+    (``double sigmoid'') $\Rightarrow$ systematically aggressive $\theta$.
+  \end{alertblock}
+\end{frame}
+
+\begin{frame}{Speciation note (matched 9-output nets)}
+  With $\theta$ inputs and a small $\theta$ distance term, genomic distances inflate.
+  Too low a threshold creates more species than
+  \texttt{pop\_size} / \texttt{min\_species\_size} allows
+  (neat-python then aborts during spawn adjustment).
+
+  \vspace{0.6em}
+  Current configs use \texttt{compatibility\_threshold}${}=10.0$
+  (XOR pop.\ $150$, pole pop.\ $250$).
 \end{frame}
 
 \begin{frame}{What network rewrite is \emph{not}}
@@ -282,21 +301,26 @@
   To compare modes fairly, \textbf{all modes} use the same network I/O layout:
 
   \begin{itemize}
-    \item XOR: 2 inputs, \textbf{9 outputs}
-    \item Pole: 4 inputs, \textbf{9 outputs}
+    \item XOR: \textbf{10 inputs} (2 task + 8 $\theta$), \textbf{9 outputs}
+    \item Pole: \textbf{12 inputs} (4 task + 8 $\theta$), \textbf{9 outputs}
   \end{itemize}
 
   \vspace{0.5em}
   Layout:
   \[
+    \underbrace{\text{task state}}_{\text{XOR / pole}} \;+\;
+    \underbrace{\hat\theta_{1..8}}_{\text{normalized current $\theta$}}
+    \;\rightarrow\;
     \underbrace{\texttt{out}_0}_{\text{task}} \;+\;
-    \underbrace{\texttt{out}_{1},\ldots,\texttt{out}_{8}}_{\text{meta / $\theta$}}
+    \underbrace{\texttt{out}_{1..8}}_{\text{meta / $\theta$}}
   \]
 
   \begin{itemize}
     \item Fitness always uses \texttt{out}$_0$ only
+    \item $\theta$ inputs are unit-normalized from current \texttt{genome.theta}
+      (defaults in \texttt{standard})
+    \item After a meta rewrite, the next evaluation feeds the updated $\theta$
     \item In \texttt{standard} / \texttt{inherited-theta}, meta heads exist but are ignored
-    \item This controls for ``extra output nodes'', not classical 1-output XOR
   \end{itemize}
 \end{frame}
 
@@ -304,8 +328,8 @@
 \section{Tasks}
 %----------------------------------------------------------------------
 
-\begin{frame}{Task 1: XOR (9-output)}
-  Classic Boolean XOR, but with 9 network outputs.
+\begin{frame}{Task 1: XOR (10-in / 9-out)}
+  Classic Boolean XOR, but with matched $\theta$ inputs and 9 network outputs.
 
   \vspace{0.5em}
   \begin{columns}[t]
@@ -323,6 +347,7 @@
         \bottomrule
       \end{tabular}
       \end{center}
+      plus 8 normalized $\theta$ channels
     \end{column}
     \begin{column}{0.48\textwidth}
       \textbf{Fitness}
@@ -344,7 +369,8 @@
 
   \vspace{0.5em}
   \begin{itemize}
-    \item \textbf{State} (4 inputs, scaled): cart position, velocity, pole angle, angular velocity
+    \item \textbf{State}: 4 scaled cart-pole channels \textbf{+} 8 normalized $\theta$
+      (12 inputs total)
     \item \textbf{Action}: discrete force from \texttt{out}$_0$ ($+10$ or $-10$)
     \item \textbf{Fitness}: worst balance time (seconds) over 5 random starts, cap $60\,\mathrm{s}$
     \item \textbf{Solved} if $F \ge 60.0$
@@ -391,9 +417,41 @@
 \section{Results}
 %----------------------------------------------------------------------
 
-\begin{frame}{XOR results: \texttt{compare\_200x50}}
+\begin{frame}{Two mapping regimes}
+  Results below distinguish:
+
+  \vspace{0.5em}
+  \begin{description}
+    \item[Double sigmoid] Early Phase~1: $\theta_i = m_i + \sigma(x_i)(M_i-m_i)$
+      on already-sigmoid $x_i$ (biased toward upper half of bounds).
+    \item[Linear map] Current code: $\theta_i = m_i + \mathrm{clamp}(x_i,0,1)(M_i-m_i)$.
+  \end{description}
+
+  \vspace{0.6em}
+  Full $\theta$ replacement each generation is unchanged in both regimes.
+\end{frame}
+
+\begin{frame}{Third change: $\theta$ as network inputs}
+  After linear mapping, we added \textbf{8 normalized $\theta$ channels} to the
+  network input vector (all modes, matched capacity):
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item XOR: $2$ task bits $+$ $8\,\hat\theta$ $\rightarrow$ \textbf{10 inputs}
+    \item Pole: $4$ state channels $+$ $8\,\hat\theta$ $\rightarrow$ \textbf{12 inputs}
+    \item Endogenous modes: inputs track live \texttt{genome.theta}
+    \item \texttt{standard}: inputs use fixed default $\theta$ (same topology)
+    \item After meta rewrite: next evaluation uses updated $\theta$ inputs
+  \end{itemize}
+
+  \vspace{0.6em}
+  Runs: \texttt{xor\_theta\_inputs}, \texttt{pole\_theta\_inputs}\\
+  (linear map; \texttt{compatibility\_threshold} raised to $10.0$ during tuning)
+\end{frame}
+
+\begin{frame}{XOR (double sigmoid): \texttt{compare\_200x50}}
   Setup: \textbf{50 runs} $\times$ up to \textbf{200 generations} $\times$ 3 modes\\
-  (fair, matched 9-output XOR)
+  (matched 9-output XOR; double-sigmoid meta map)
 
   \vspace{0.6em}
   \begin{tabular}{lrrr}
@@ -410,23 +468,46 @@
   Ranking: \textbf{standard $\gg$ inherited-theta $\gg$ meta-theta}
 \end{frame}
 
+\begin{frame}{XOR (linear map): \texttt{xor\_compare\_linear-3}}
+  Setup: \textbf{10 runs} $\times$ up to \textbf{100 generations}; linear meta map;
+  \texttt{compatibility\_threshold}${}=4.0$ (pre--$\theta$-input configs)
+
+  \vspace{0.6em}
+  \begin{tabular}{lrrr}
+    \toprule
+    Mode & Solved & Solve rate & Median first solve \\
+    \midrule
+    standard & $1/10$ & 10\% & gen $73$ \\
+    inherited-theta & $0/10$ & 0\% & --- \\
+    meta-theta & $0/10$ & 0\% & --- \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.6em}
+  \begin{itemize}
+    \item All modes sit on the $F\approx 3.0$ plateau (median curves flat)
+    \item Linear map alone does \textbf{not} rescue meta-$\theta$ on XOR
+    \item Underpowered vs $200\times 50$; also stricter speciation than the older run
+  \end{itemize}
+\end{frame}
+
 \begin{frame}{XOR: interpretation}
   \begin{itemize}
     \item Fitness $\approx 3.0$ is a common local plateau (constant mid-outputs)
-    \item Encoding $\theta$ alone (\texttt{inherited-theta}) \textbf{hurts} vs fixed $\lambda$
-      ($-26$ percentage points solve rate)
-    \item Network-written $\theta$ (\texttt{meta-theta}) hurts much more
-      ($-60$ pp vs standard)
-    \item Meta-$\theta$ drifts toward high \texttt{weight\_mutate\_power} ($\sim 3$)
-      and high enable/disable rate---aggressive mutation on a bad attractor
+    \item Under double sigmoid, encoding $\theta$ alone hurts vs fixed $\lambda$
+      ($-26$~pp); meta hurts much more ($-60$~pp)
+    \item Under linear map (short budget), meta still fails; $\theta$ still
+      bound-bangs (\texttt{weight\_mutate\_power} median $\sim 3.4$)
+    \item Inherited $\theta$ stays near defaults but does not escape the plateau
+      in $100$ gens $\times$ $10$ seeds
   \end{itemize}
 
   \vspace{0.4em}
-  Valid \textbf{negative result} for Phase-1 weak endogeneity on this XOR setup.
+  Fair large re-run ($200$ gens, $\ge 30$--$50$ seeds) still needed for the linear map.
 \end{frame}
 
-\begin{frame}{Pole results: \texttt{pole\_compare2}}
-  Setup: up to \textbf{200 generations}; note uneven $n$ (20 / 10 / 10)
+\begin{frame}{Pole (double sigmoid): \texttt{pole\_compare2}}
+  Setup: up to \textbf{200 generations}; uneven $n$ (20 / 10 / 10)
 
   \vspace{0.6em}
   \begin{tabular}{lrrr}
@@ -444,41 +525,162 @@
   (best unfinished run $\approx 57.5\,\mathrm{s}$).
 \end{frame}
 
+\begin{frame}{Pole (linear map): \texttt{pole\_compare\_linear-2}}
+  Setup: \textbf{10 runs}/mode $\times$ up to \textbf{200 generations}; linear meta map
+
+  \vspace{0.6em}
+  \begin{tabular}{lrrr}
+    \toprule
+    Mode & Solved & Solve rate & Median first solve \\
+    \midrule
+    standard & $10/10$ & \textbf{100\%} & gen $20$ \\
+    inherited-theta & $10/10$ & \textbf{100\%} & gen $11$ \\
+    meta-theta & $7/10$ & 70\% & gen $23$ \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.6em}
+  \begin{itemize}
+    \item Meta solve rate: $0\%$ $\rightarrow$ \textbf{70\%} after removing double sigmoid
+    \item Inherited remains fastest to threshold
+    \item Three meta failures stay $\sim 2\,\mathrm{s}$ for all $200$ gens
+      (final \texttt{weight\_mutate\_power}${}\approx 5$)
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{XOR ($\theta$ inputs): \texttt{xor\_theta\_inputs}}
+  Setup: \textbf{10 runs}/mode $\times$ \textbf{100 generations}; linear map;
+  \textbf{10 inputs} ($2$ XOR $+$ $8\,\hat\theta$); \texttt{compat}${}=10.0$
+
+  \vspace{0.6em}
+  \begin{tabular}{lrrr}
+    \toprule
+    Mode & Solved & Solve rate & Median first solve \\
+    \midrule
+    standard & $0/10$ & 0\% & --- \\
+    inherited-theta & $0/10$ & 0\% & --- \\
+    meta-theta & $0/10$ & 0\% & --- \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.6em}
+  \begin{itemize}
+    \item All modes stuck at $F=3.0$ for all $100$ generations (no run $>3.0$)
+    \item Worse than \texttt{xor\_compare\_linear-3} (standard $1/10$ solved)
+    \item Meta final $\theta$: \texttt{weight\_mutate\_power} median $\approx 5.0$,
+      \texttt{enable\_disable\_rate} $\approx 0.25$
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Pole ($\theta$ inputs): \texttt{pole\_theta\_inputs}}
+  Setup: up to \textbf{200 generations}; \textbf{12 inputs} ($4$ state $+$ $8\,\hat\theta$);
+  \texttt{compat}${}=10.0$; folder merges two compare batches ($n$ uneven for meta)
+
+  \vspace{0.6em}
+  \begin{tabular}{lrrr}
+    \toprule
+    Mode & Solved & Solve rate & Median first solve \\
+    \midrule
+    standard & $20/20$ & \textbf{100\%} & gen $8$ \\
+    inherited-theta & $20/20$ & \textbf{100\%} & gen $12.5$ \\
+    meta-theta & $13/18$ & 72\% & gen $54$ \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.6em}
+  \begin{itemize}
+    \item Standard / inherited \textbf{faster} than pre-input \texttt{pole\_compare\_linear-2}
+      (median gen $20$ / $11$)
+    \item Meta solve rate similar ($72\%$ vs $70\%$) but \textbf{slower} when it works
+      (median gen $54$ vs $23$)
+    \item Second batch alone: meta $10/10$; first batch: meta $3/8$ (speciation crashes)
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{$\theta$ inputs: interpretation}
+  \begin{columns}[t]
+    \begin{column}{0.48\textwidth}
+      \textbf{Pole}
+      \begin{itemize}
+        \item Feeding $\hat\theta$ did not break control
+        \item Classical / inherited solve \textbf{100\%}, often \textbf{faster}
+        \item Meta still fails $\sim 28\%$ of runs
+        \item Failures: \texttt{weight\_mutate\_power}${}\approx 5$\\
+          Successes: often \emph{low} power ($\sim 0$)
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \textbf{XOR}
+      \begin{itemize}
+        \item $\theta$ awareness did \textbf{not} escape $F=3.0$ plateau
+        \item Extra inputs + higher speciation pressure may hurt search
+        \item Meta still bound-bangs mutation rates
+        \item Needs larger budget ($200$ gens, more seeds)
+      \end{itemize}
+    \end{column}
+  \end{columns}
+
+  \vspace{0.8em}
+  \begin{block}{Net effect}
+    $\theta$ inputs help pole meta \emph{condition} on operator state but do not fix
+    XOR; meta-$\theta$ remains a bifurcation (mild $\theta$ vs saturated $\theta$).
+  \end{block}
+\end{frame}
+
 \begin{frame}{Pole: interpretation}
   \begin{itemize}
     \item Cart-pole is much easier for classical NEAT than 9-output XOR
-    \item \texttt{inherited-theta} is \textbf{competitive} (100\% solve; possibly faster)
-    \item \texttt{meta-theta} still fails: same aggressive $\theta$ pattern as on XOR
-    \item Fitness plot understates standard/inherited success (early stopping)
+    \item \texttt{inherited-theta} is \textbf{competitive} (100\%; often faster)
+    \item Linear meta map is a \textbf{real improvement} on pole, but not a full fix
+    \item Failed meta runs still look like over-aggressive mutation attractors
+    \item Overlay fitness/$\theta$ PNGs truncate due to early stopping---prefer solve rates
   \end{itemize}
+\end{frame}
+
+\begin{frame}{Cross-task summary}
+  \small
+  \begin{center}
+  \begin{tabular}{lccc}
+    \toprule
+    Setting & XOR solve (meta) & Pole solve (meta) & Notes \\
+    \midrule
+    Double $\sigma$, no $\hat\theta$ in & $2/50$ (4\%) & $0/10$ (0\%) & early Phase~1 \\
+    Linear map, no $\hat\theta$ in & $0/10$ & $7/10$ (70\%) & \texttt{*\_linear-2/3} \\
+    Linear map + $\hat\theta$ in & $0/10$ & $13/18$ (72\%) & \texttt{*\_theta\_inputs} \\
+    \midrule
+    standard (best pole) & --- & $20/20$ (100\%) & med.\ solve gen $8$ \\
+    inherited (best pole) & --- & $20/20$ (100\%) & med.\ solve gen $12.5$ \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
 
   \vspace{0.6em}
-  \begin{block}{Cross-task summary}
-    \begin{itemize}
-      \item Inherited $\theta$: harmful on XOR, fine on pole (task-dependent)
-      \item Meta $\theta$: harmful on \textbf{both}
-    \end{itemize}
+  \begin{block}{Takeaway}
+    Linear mapping + $\theta$ inputs stabilizes pole meta at $\sim 70\%$ solve and
+    speeds classical modes; XOR remains at the $F=3.0$ plateau under current budgets.
+    Meta-$\theta$ still splits into mild vs saturated mutation attractors.
   \end{block}
 \end{frame}
 
 \begin{frame}{What $\theta$ does under meta-theta}
-  Across tasks, best-genome meta-$\theta$ consistently shifts toward:
+  Even with linear mapping and $\hat\theta$ inputs, best-genome meta-$\theta$ often shifts toward:
 
   \begin{center}
   \begin{tabular}{lcc}
     \toprule
     Parameter & Default / inherited & Meta-theta tendency \\
     \midrule
-    \texttt{weight\_mutate\_power} & $\sim 0.5$ & $\sim 2.5$--$3.5$ \\
-    \texttt{enable\_disable\_rate} & $\sim 0.01$ & $\sim 0.25$--$0.35$ \\
-    \texttt{node\_add/delete\_prob} & $\sim 0.2$ & higher ($\sim 0.3$) \\
-    \texttt{weight\_mutate\_rate} & $\sim 0.8$ & often lower \\
+    \texttt{weight\_mutate\_power} & $\sim 0.5$ & high ($\sim 2$--$5$) or very low if solved \\
+    \texttt{enable\_disable\_rate} & $\sim 0.01$ & elevated (esp.\ failures) \\
+    structural probs & near defaults & volatile / bound-banging \\
     \bottomrule
   \end{tabular}
   \end{center}
 
   \vspace{0.6em}
-  $\theta$ \emph{is evolving}---but not in a way that improves task fitness here.
+  On pole \texttt{theta\_inputs}: \emph{unsolved} meta runs end with power $\approx 5$;
+  \emph{solved} runs often end with power $\approx 0$.
+  Full rewrite + saturating heads can still lock a bad attractor.
 \end{frame}
 
 %----------------------------------------------------------------------
@@ -489,30 +691,29 @@
   \begin{enumerate}
     \item Prototype implements \textbf{weak endogeneity}: per-genome $\theta$, three modes,
       XOR + pole, automated comparisons.
-    \item On matched-capacity XOR, classical NEAT outperforms endogenous modes.
-    \item On pole, inherited $\theta$ matches classical success; meta-$\theta$ does not.
-    \item Meta-output replacement of $\theta$ appears misaligned with escaping plateaus
-      (over-aggressive mutation).
+    \item Double-sigmoid meta mapping was overly aggressive; current code maps linearly.
+    \item Feeding normalized $\theta$ as inputs closes the awareness loop; pole control
+      remains strong and often \textbf{faster}; XOR still plateaus at $F=3.0$.
+    \item On pole, meta-$\theta$ reaches $\sim 70\%$ solve (linear map + inputs) but
+      slower than classical and still bifurcates (mild vs saturated $\theta$).
+    \item On XOR, $\theta$ inputs did not improve solve rates under $100\times 10$ budget.
   \end{enumerate}
 
-  \vspace{0.6em}
-  Possible next steps (not claimed here): residual $\theta$ updates, tighter bounds on
-  mutation power, task-only vs matched-capacity ablations, harder control/memory tasks.
+  \vspace{0.5em}
+  Next steps: residual $\theta$ updates, clamp mutation power, larger XOR re-run,
+  task-only vs matched-capacity ablations.
 \end{frame}
 
 \begin{frame}{How to reproduce}
   \begin{verbatim}
-# XOR comparison
+# XOR / pole with theta inputs (current configs)
 python -m endogenous_neat.experiment \
-  --task xor --mode compare \
-  --generations 200 --runs 50 \
-  --output-dir runs/xor_compare/
+  --task xor --mode compare --generations 100 --runs 10 \
+  --output-dir runs/xor_theta_inputs/
 
-# Pole comparison
 python -m endogenous_neat.experiment \
-  --task pole --mode compare \
-  --generations 200 --runs 10 \
-  --output-dir runs/pole_compare/
+  --task pole --mode compare --generations 200 --runs 10 \
+  --output-dir runs/pole_theta_inputs/
   \end{verbatim}
 
   Artifacts under \texttt{<output-dir>/comparison/}:

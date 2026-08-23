@@ -24,6 +24,16 @@ def test_mutation_preserves_bounds():
             assert lo <= value <= hi
 
 
+def test_unit_interval_vector_maps_bounds():
+    lo = Theta.from_dict({name: Theta.BOUNDS[name][0] for name in THETA_FIELD_NAMES})
+    hi = Theta.from_dict({name: Theta.BOUNDS[name][1] for name in THETA_FIELD_NAMES})
+    mid = Theta.default()
+    assert lo.to_unit_interval_vector() == pytest.approx([0.0] * 8)
+    assert hi.to_unit_interval_vector() == pytest.approx([1.0] * 8)
+    units = mid.to_unit_interval_vector()
+    assert all(0.0 <= u <= 1.0 for u in units)
+
+
 def test_meta_output_transformation_within_bounds():
     # Meta-heads are already sigmoid-activated; map [0, 1] linearly into bounds.
     raw_outputs = [0.0, 0.25, 0.5, 0.75, 1.0, 0.1, 0.9, 0.5]

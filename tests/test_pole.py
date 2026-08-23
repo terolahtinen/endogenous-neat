@@ -25,9 +25,11 @@ class _FakeNet:
     def __init__(self, outputs: list[float]):
         self.outputs = outputs
         self.calls = 0
+        self.last_inputs = None
 
     def activate(self, inputs):
         self.calls += 1
+        self.last_inputs = list(inputs)
         return list(self.outputs)
 
 
@@ -49,10 +51,26 @@ def test_evaluate_pole_meta_average_within_bounds():
     assert fitness >= 0.0
     assert mean_meta is not None
     assert len(mean_meta) == NUM_META_OUTPUTS
+    assert len(net.last_inputs) == 12  # 4 state + 8 theta
     theta = Theta.from_meta_outputs(mean_meta)
     for name in THETA_FIELD_NAMES:
         lo, hi = Theta.BOUNDS[name]
         assert lo <= getattr(theta, name) <= hi
+
+
+def test_evaluate_pole_feeds_current_theta_as_inputs():
+    net = _FakeNet([0.9] + [0.0] * 8)
+    custom = Theta.from_dict({**Theta.DEFAULTS, "weight_mutate_power": 5.0})
+    evaluate_pole(
+        net,
+        update_meta=False,
+        theta=custom,
+        runs_per_net=1,
+        simulation_seconds=0.05,
+    )
+    assert len(net.last_inputs) == 12
+    # Last 8 inputs are unit-normalized theta; power=5.0 -> 1.0
+    assert net.last_inputs[-3] == pytest.approx(1.0)  # weight_mutate_power index
 
 
 def test_meta_theta_eval_sets_genome_theta(tmp_path):
@@ -74,10 +92,11 @@ def test_meta_theta_eval_sets_genome_theta(tmp_path):
 
     original = pole_mod.evaluate_pole
 
-    def short_eval(net, update_meta, **kwargs):
+    def short_eval(net, update_meta, theta=None, **kwargs):
         return original(
             net,
             update_meta,
+            theta=theta,
             runs_per_net=1,
             simulation_seconds=0.05,
         )

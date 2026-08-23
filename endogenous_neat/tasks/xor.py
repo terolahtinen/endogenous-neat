@@ -11,8 +11,11 @@ from endogenous_neat.tasks.base import (
     NUM_META_OUTPUTS,
     TASK_OUTPUT_INDEX,
     apply_meta_theta,
+    augment_inputs_with_theta,
     genome_type_for_mode,
+    theta_for_genome,
 )
+from endogenous_neat.theta import Theta
 
 XOR_INPUTS = [(0.0, 0.0), (0.0, 1.0), (1.0, 0.0), (1.0, 1.0)]
 XOR_OUTPUTS = [0.0, 1.0, 1.0, 0.0]
@@ -27,12 +30,23 @@ def fitness_threshold() -> float:
     return FITNESS_THRESHOLD
 
 
-def evaluate_xor(net, update_meta: bool) -> tuple[float, list[float] | None]:
-    """Evaluate XOR fitness and optionally collect mean meta-outputs."""
+def evaluate_xor(
+    net,
+    update_meta: bool,
+    theta: Theta | None = None,
+) -> tuple[float, list[float] | None]:
+    """Evaluate XOR fitness and optionally collect mean meta-outputs.
+
+    ``theta`` is concatenated (normalized) onto each XOR case as network inputs.
+    """
+    if theta is None:
+        theta = Theta.default()
+
     fitness = 4.0
     meta_sums = [0.0] * NUM_META_OUTPUTS
 
-    for inputs, expected in zip(XOR_INPUTS, XOR_OUTPUTS, strict=True):
+    for case_inputs, expected in zip(XOR_INPUTS, XOR_OUTPUTS, strict=True):
+        inputs = augment_inputs_with_theta(case_inputs, theta)
         outputs = net.activate(inputs)
         fitness -= (outputs[TASK_OUTPUT_INDEX] - expected) ** 2
         if update_meta:
@@ -52,7 +66,9 @@ def make_eval_genomes(mode: str) -> Callable:
         def eval_genomes(genomes, config):
             for _genome_id, genome in genomes:
                 net = neat.nn.FeedForwardNetwork.create(genome, config)
-                fitness, _ = evaluate_xor(net, update_meta=False)
+                fitness, _ = evaluate_xor(
+                    net, update_meta=False, theta=theta_for_genome(genome)
+                )
                 genome.fitness = fitness
 
         return eval_genomes
@@ -62,7 +78,9 @@ def make_eval_genomes(mode: str) -> Callable:
         def eval_genomes(genomes, config):
             for _genome_id, genome in genomes:
                 net = neat.nn.FeedForwardNetwork.create(genome, config)
-                fitness, _ = evaluate_xor(net, update_meta=False)
+                fitness, _ = evaluate_xor(
+                    net, update_meta=False, theta=theta_for_genome(genome)
+                )
                 genome.fitness = fitness
 
         return eval_genomes
@@ -72,7 +90,11 @@ def make_eval_genomes(mode: str) -> Callable:
         def eval_genomes(genomes, config):
             for _genome_id, genome in genomes:
                 net = neat.nn.FeedForwardNetwork.create(genome, config)
-                fitness, mean_meta = evaluate_xor(net, update_meta=True)
+                # Inputs use pre-eval theta; rewrite updates genome.theta so the
+                # next generation (and any later activate) sees the new values.
+                fitness, mean_meta = evaluate_xor(
+                    net, update_meta=True, theta=theta_for_genome(genome)
+                )
                 genome.fitness = fitness
                 apply_meta_theta(genome, mean_meta)
 

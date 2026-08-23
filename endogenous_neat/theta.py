@@ -118,6 +118,18 @@ class Theta:
     def to_vector(self) -> list[float]:
         return [getattr(self, name) for name in THETA_FIELD_NAMES]
 
+    def to_unit_interval_vector(self) -> list[float]:
+        """Normalize each field into [0, 1] for use as network inputs."""
+        values = []
+        for name in THETA_FIELD_NAMES:
+            lo, hi = self.BOUNDS[name]
+            span = hi - lo
+            if span <= 0:
+                values.append(0.0)
+            else:
+                values.append(_unit_interval((getattr(self, name) - lo) / span))
+        return values
+
     @classmethod
     def from_vector(cls, vector: list[float]) -> Theta:
         if len(vector) != len(THETA_FIELD_NAMES):

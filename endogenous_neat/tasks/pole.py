@@ -12,8 +12,11 @@ from endogenous_neat.tasks.base import (
     NUM_META_OUTPUTS,
     TASK_OUTPUT_INDEX,
     apply_meta_theta,
+    augment_inputs_with_theta,
     genome_type_for_mode,
+    theta_for_genome,
 )
+from endogenous_neat.theta import Theta
 
 FITNESS_THRESHOLD = 60.0
 RUNS_PER_NET = 5
@@ -32,10 +35,18 @@ def evaluate_pole(
     net,
     update_meta: bool,
     *,
+    theta: Theta | None = None,
     runs_per_net: int = RUNS_PER_NET,
     simulation_seconds: float = SIMULATION_SECONDS,
 ) -> tuple[float, list[float] | None]:
-    """Evaluate cart-pole balance time; optionally average meta-outputs."""
+    """Evaluate cart-pole balance time; optionally average meta-outputs.
+
+    ``theta`` is concatenated (normalized) onto the scaled cart-pole state at
+    every timestep so the controller can condition on current operator params.
+    """
+    if theta is None:
+        theta = Theta.default()
+
     fitnesses: list[float] = []
     meta_sums = [0.0] * NUM_META_OUTPUTS
     meta_count = 0
@@ -43,7 +54,7 @@ def evaluate_pole(
     for _ in range(runs_per_net):
         sim = CartPole()
         while sim.t < simulation_seconds:
-            inputs = sim.get_scaled_state()
+            inputs = augment_inputs_with_theta(sim.get_scaled_state(), theta)
             outputs = net.activate(inputs)
             force = discrete_actuator_force(outputs)
             sim.step(force)
@@ -75,7 +86,9 @@ def make_eval_genomes(mode: str) -> Callable:
         def eval_genomes(genomes, config):
             for _genome_id, genome in genomes:
                 net = neat.nn.FeedForwardNetwork.create(genome, config)
-                fitness, _ = evaluate_pole(net, update_meta=False)
+                fitness, _ = evaluate_pole(
+                    net, update_meta=False, theta=theta_for_genome(genome)
+                )
                 genome.fitness = fitness
 
         return eval_genomes
@@ -85,7 +98,9 @@ def make_eval_genomes(mode: str) -> Callable:
         def eval_genomes(genomes, config):
             for _genome_id, genome in genomes:
                 net = neat.nn.FeedForwardNetwork.create(genome, config)
-                fitness, _ = evaluate_pole(net, update_meta=False)
+                fitness, _ = evaluate_pole(
+                    net, update_meta=False, theta=theta_for_genome(genome)
+                )
                 genome.fitness = fitness
 
         return eval_genomes
@@ -95,7 +110,9 @@ def make_eval_genomes(mode: str) -> Callable:
         def eval_genomes(genomes, config):
             for _genome_id, genome in genomes:
                 net = neat.nn.FeedForwardNetwork.create(genome, config)
-                fitness, mean_meta = evaluate_pole(net, update_meta=True)
+                fitness, mean_meta = evaluate_pole(
+                    net, update_meta=True, theta=theta_for_genome(genome)
+                )
                 genome.fitness = fitness
                 apply_meta_theta(genome, mean_meta)
 

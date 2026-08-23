@@ -3,7 +3,6 @@ import pickle
 from itertools import count
 
 from endogenous_neat.genome import (
-    THETA_DISTANCE_COEFF,
     EndogenousGenome,
     apply_theta_to_config,
     sync_node_indexer,
@@ -20,6 +19,7 @@ def test_configure_new_sets_theta(genome_config):
     genome = EndogenousGenome(1)
     genome.configure_new(genome_config)
     assert isinstance(genome.theta, Theta)
+    assert genome.theta.l1_distance_from_defaults() >= 0.0
 
 
 def test_mutation_preserves_theta(genome_config):
@@ -52,11 +52,24 @@ def test_distance_includes_theta_component(genome_config):
     g2.configure_new(genome_config)
     g1.theta = Theta.default()
     g2.theta = Theta.from_dict({**Theta.DEFAULTS, "conn_add_prob": 0.8})
+    genome_config.theta_distance_coefficient = 0.1
 
     d_same = g1.distance(g1, genome_config)
     d_diff = g1.distance(g2, genome_config)
     assert d_diff > d_same
-    assert d_diff - d_same >= THETA_DISTANCE_COEFF * 0.6
+    assert d_diff - d_same >= 0.1 * 0.6
+
+
+def test_distance_ignores_theta_when_coeff_zero(genome_config):
+    g1 = EndogenousGenome(8)
+    g2 = EndogenousGenome(9)
+    g1.configure_new(genome_config)
+    g1.fitness = 1.0
+    g2.configure_crossover(g1, g1, genome_config)
+    g1.theta = Theta.default()
+    g2.theta = Theta.from_dict({**Theta.DEFAULTS, "conn_add_prob": 0.8})
+    genome_config.theta_distance_coefficient = 0.0
+    assert g1.distance(g2, genome_config) == g1.distance(g1, genome_config)
 
 
 def test_apply_theta_does_not_mutate_global_config(genome_config):

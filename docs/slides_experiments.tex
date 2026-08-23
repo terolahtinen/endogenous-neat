@@ -693,15 +693,33 @@
       XOR + pole, automated comparisons.
     \item Double-sigmoid meta mapping was overly aggressive; current code maps linearly.
     \item Feeding normalized $\theta$ as inputs closes the awareness loop; pole control
-      remains strong and often \textbf{faster}; XOR still plateaus at $F=3.0$.
-    \item On pole, meta-$\theta$ reaches $\sim 70\%$ solve (linear map + inputs) but
-      slower than classical and still bifurcates (mild vs saturated $\theta$).
-    \item On XOR, $\theta$ inputs did not improve solve rates under $100\times 10$ budget.
+      remains strong; XOR still plateaus at $F=3.0$ under short budgets.
+    \item Phase~2 inherited code: gentler log-normal $\theta$ mutation, diverse init,
+      $\theta$ removed from speciation distance, power cap after mutation.
+    \item On pole, meta-$\theta$ reaches $\sim 70\%$ solve but remains slower and bifurcated.
+    \item On XOR, inherited/meta $\theta$ still need larger re-runs under Phase~2 settings.
   \end{enumerate}
 
   \vspace{0.5em}
-  Next steps: residual $\theta$ updates, clamp mutation power, larger XOR re-run,
-  task-only vs matched-capacity ablations.
+  Next steps: Phase~2 inherited benchmarks, residual meta updates, task-only ablations.
+\end{frame}
+
+\begin{frame}{Phase 2: inherited-$\theta$ evolution (code)}
+  Changes to make selection on $\theta$ genes more effective:
+
+  \vspace{0.5em}
+  \begin{itemize}
+    \item \textbf{Gentler mutation}: \texttt{theta\_mutate\_rate}${}=0.05$,
+      \texttt{theta\_mutate\_power}${}=0.02$, mode \texttt{log\_normal}
+    \item \textbf{Diverse init}: \texttt{Theta.randomized} at \texttt{configure\_new}
+    \item \textbf{No $\theta$ speciation}: \texttt{theta\_distance\_coefficient}${}=0$
+    \item \textbf{Power cap}: \texttt{weight\_mutate\_power\_cap}${}=1.5$ after mutation
+    \item Compare summary reports $\theta$ drift L1 from defaults
+  \end{itemize}
+
+  \vspace{0.6em}
+  Re-run \texttt{inherited-theta} vs \texttt{standard} on XOR ($200\times 50$) and pole
+  to measure improvement over Phase~1 inherited results.
 \end{frame}
 
 \begin{frame}{How to reproduce}

@@ -9,8 +9,10 @@ from random import Random
 import neat
 
 from endogenous_neat.theta import THETA_FIELD_NAMES, Theta
+from endogenous_neat.theta_config import ThetaEvolutionConfig
 
-THETA_DISTANCE_COEFF = 0.1
+# Legacy module constant; distance() reads config.theta_distance_coefficient.
+THETA_DISTANCE_COEFF = 0.0
 
 
 def apply_theta_to_config(config, theta: Theta):
@@ -49,7 +51,14 @@ class EndogenousGenome(neat.DefaultGenome):
 
     @classmethod
     def parse_config(cls, param_dict):
-        return neat.DefaultGenome.parse_config(param_dict)
+        genome_params, theta_config = ThetaEvolutionConfig.extract_from_param_dict(
+            param_dict
+        )
+        genome_params["node_gene_type"] = neat.DefaultNodeGene
+        genome_params["connection_gene_type"] = neat.DefaultConnectionGene
+        config = neat.genome.DefaultGenomeConfig(genome_params, cls.__name__)
+        theta_config.attach_to(config)
+        return config
 
     def __init__(self, key):
         super().__init__(key)
@@ -57,7 +66,8 @@ class EndogenousGenome(neat.DefaultGenome):
 
     def configure_new(self, config):
         super().configure_new(config)
-        self.theta = Theta.default()
+        spread = getattr(config, "theta_init_spread", 0.1)
+        self.theta = Theta.randomized(Random(), spread=spread)
 
     def configure_crossover(self, genome1, genome2, config, fitness_criterion=None):
         super().configure_crossover(genome1, genome2, config, fitness_criterion)
@@ -73,14 +83,18 @@ class EndogenousGenome(neat.DefaultGenome):
         # Propagate indexer rebinding to the shared population config.
         config.node_indexer = local_config.node_indexer
         super().mutate(local_config)
-        self.theta = self.theta.mutated(Random())
+        theta_config = ThetaEvolutionConfig.from_genome_config(config)
+        self.theta = self.theta.mutated_with_config(Random(), theta_config)
 
     def distance(self, other, config):
         base = super().distance(other, config)
         if not hasattr(other, "theta"):
             return base
+        coeff = getattr(config, "theta_distance_coefficient", THETA_DISTANCE_COEFF)
+        if coeff <= 0:
+            return base
         theta_dist = sum(
             abs(a - b)
             for a, b in zip(self.theta.to_vector(), other.theta.to_vector(), strict=True)
         )
-        return base + THETA_DISTANCE_COEFF * theta_dist
+        return base + coeff * theta_dist

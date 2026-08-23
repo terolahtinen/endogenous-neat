@@ -71,7 +71,27 @@ def parse_args() -> argparse.Namespace:
             "existing run directories under --output-dir."
         ),
     )
+    parser.add_argument(
+        "--theta-distance-coeff",
+        type=float,
+        default=None,
+        help="Override theta_distance_coefficient on the genome config.",
+    )
+    parser.add_argument(
+        "--theta-mutate-mode",
+        choices=("gaussian", "log_normal"),
+        default=None,
+        help="Override theta_mutate_mode on the genome config.",
+    )
     return parser.parse_args()
+
+
+def apply_theta_cli_overrides(config: neat.Config, args: argparse.Namespace) -> None:
+    genome_config = config.genome_config
+    if args.theta_distance_coeff is not None:
+        genome_config.theta_distance_coefficient = args.theta_distance_coeff
+    if args.theta_mutate_mode is not None:
+        genome_config.theta_mutate_mode = args.theta_mutate_mode
 
 
 def run_single(
@@ -83,6 +103,7 @@ def run_single(
     task_name: str,
     eval_genomes,
     fitness_threshold: float,
+    theta_overrides: argparse.Namespace | None = None,
 ) -> neat.DefaultGenome:
     genome_type = genome_type_for_mode(mode)
     reproduction_type = (
@@ -96,6 +117,8 @@ def run_single(
         neat.DefaultStagnation,
         str(config_path),
     )
+    if theta_overrides is not None:
+        apply_theta_cli_overrides(config, theta_overrides)
 
     population = neat.Population(config)
     theta_reporter = ThetaReporter()
@@ -138,6 +161,7 @@ def run_modes(
     base_output: Path,
     task_name: str,
     task,
+    theta_overrides: argparse.Namespace | None = None,
 ) -> list[Path]:
     """Run each mode for the requested number of independent runs."""
     run_dirs: list[Path] = []
@@ -157,6 +181,7 @@ def run_modes(
                 task_name=task_name,
                 eval_genomes=eval_genomes,
                 fitness_threshold=threshold,
+                theta_overrides=theta_overrides,
             )
             run_dirs.append(run_dir)
             print(f"[{task_name}/{mode}] Run {run_index + 1}/{runs} complete: {run_dir}")
@@ -188,6 +213,7 @@ def main() -> None:
             base_output=base_output,
             task_name=args.task,
             task=task,
+            theta_overrides=args,
         )
         comparison_dir = compare_runs(
             base_output, fitness_threshold=threshold
@@ -203,6 +229,7 @@ def main() -> None:
         base_output=base_output,
         task_name=args.task,
         task=task,
+        theta_overrides=args,
     )
 
 

@@ -203,8 +203,10 @@ pytest tests/ -v
 
 | Aspect | Standard NEAT | Endogenous NEAT |
 |--------|---------------|-----------------|
-| Mutation rates | Global config λ | Per-genome θ (inherited, mutated) |
+| Mutation rates | Global config λ | Per-genome θ (inherited, mutated gently) |
 | θ as inputs | Fixed defaults (matched capacity) | Live `genome.theta`, normalized to [0, 1] |
+| θ mutation | N/A | log-normal on rates; cap on `weight_mutate_power` (default 1.5) |
+| θ in speciation | N/A | Off by default (`theta_distance_coefficient = 0`) |
 | Meta-outputs | N/A | 8 sigmoid outputs mapped linearly into θ bounds (meta-theta mode) |
 | Speciation distance | Topology/weights only | Adds small θ component |
 | Reproduction | External | Still external |

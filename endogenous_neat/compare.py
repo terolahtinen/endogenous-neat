@@ -9,7 +9,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from endogenous_neat.theta import THETA_FIELD_NAMES
+from endogenous_neat.theta import THETA_FIELD_NAMES, Theta
 
 COMPARE_MODES = ("standard", "inherited-theta", "meta-theta")
 FITNESS_THRESHOLD = 3.9
@@ -81,6 +81,20 @@ def aggregate_fitness(
     return generations, median, q25, q75
 
 
+def final_theta_drift_l1(run_dir: Path) -> float | None:
+    """L1 distance of final best-genome theta from defaults."""
+    theta_path = run_dir / "theta_best.csv"
+    if not theta_path.exists():
+        return None
+    rows = list(csv.DictReader(theta_path.open()))
+    if not rows:
+        return None
+    final = Theta.from_dict(
+        {name: float(rows[-1][name]) for name in THETA_FIELD_NAMES}
+    )
+    return final.l1_distance_from_defaults()
+
+
 def mode_stats(run_dirs: list[Path], fitness_threshold: float = FITNESS_THRESHOLD) -> dict:
     """Compute summary statistics for one mode across runs."""
     final_best: list[float] = []
@@ -102,6 +116,8 @@ def mode_stats(run_dirs: list[Path], fitness_threshold: float = FITNESS_THRESHOL
                     break
 
     n = len(final_best)
+    drifts = [d for d in (final_theta_drift_l1(run_dir) for run_dir in run_dirs) if d is not None]
+    material_drift_runs = sum(1 for d in drifts if d > 0.05)
     return {
         "n_runs": n,
         "solved": solved,
@@ -112,6 +128,9 @@ def mode_stats(run_dirs: list[Path], fitness_threshold: float = FITNESS_THRESHOL
         "median_first_solve_gen": (
             float(np.median(first_solve_gens)) if first_solve_gens else float("nan")
         ),
+        "theta_drift_l1_mean": float(np.mean(drifts)) if drifts else float("nan"),
+        "theta_drift_l1_median": float(np.median(drifts)) if drifts else float("nan"),
+        "theta_material_drift_runs": material_drift_runs,
     }
 
 
@@ -215,9 +234,18 @@ def write_comparison_summary(
                 f"{stats['final_best_mean']:.6f} ± {stats['final_best_std']:.6f}",
                 f"  final best fitness median: {stats['final_best_median']:.6f}",
                 f"  median first-solve generation: {stats['median_first_solve_gen']}",
-                "",
             ]
         )
+        if mode != "standard" and stats["n_runs"]:
+            lines.extend(
+                [
+                    f"  theta drift L1 (mean / median): "
+                    f"{stats['theta_drift_l1_mean']:.4f} / {stats['theta_drift_l1_median']:.4f}",
+                    f"  runs with material theta drift (>0.05 L1): "
+                    f"{stats['theta_material_drift_runs']}/{stats['n_runs']}",
+                ]
+            )
+        lines.append("")
 
     lines.extend(
         [
@@ -254,6 +282,9 @@ def write_comparison_csv(
         "final_best_std",
         "final_best_median",
         "median_first_solve_gen",
+        "theta_drift_l1_mean",
+        "theta_drift_l1_median",
+        "theta_material_drift_runs",
     ]
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

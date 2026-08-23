@@ -35,20 +35,22 @@ def test_child_theta_stays_bounded_after_mutation(neat_config):
 
 def test_high_conn_add_prob_adds_more_connections(neat_config):
     """Higher conn_add_prob should tend to add more connections under mutation."""
+    genome_config = neat_config.genome_config
+    genome_config.initial_connection = "partial_direct"
+    genome_config.connection_fraction = 0.2
 
     def count_net_growth(theta: Theta) -> float:
         totals = []
         for seed in range(40):
             genome = EndogenousGenome(1000 + seed)
-            genome.configure_new(neat_config.genome_config)
+            genome.configure_new(genome_config)
             genome.theta = theta
             start = len(genome.connections)
-            for _ in range(80):
-                genome.mutate(neat_config.genome_config)
+            for _ in range(200):
+                genome.mutate(genome_config)
             totals.append(len(genome.connections) - start)
         return sum(totals) / len(totals)
 
-    # Freeze structural deletes/adds of nodes so conn_add_prob dominates.
     shared = {
         **Theta.DEFAULTS,
         "node_add_prob": 0.0,

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from random import Random
 from typing import ClassVar
+
+from endogenous_neat.theta_config import ThetaEvolutionConfig
 
 THETA_FIELD_NAMES: tuple[str, ...] = (
     "node_add_prob",
@@ -93,17 +96,95 @@ class Theta:
             clipped[name] = min(hi, max(lo, getattr(self, name)))
         return Theta(**clipped)
 
+    @classmethod
+    def randomized(cls, rng: Random, spread: float = 0.1) -> Theta:
+        """Return theta with small uniform perturbations around defaults."""
+        values = {}
+        for name in THETA_FIELD_NAMES:
+            default = cls.DEFAULTS[name]
+            lo, hi = cls.BOUNDS[name]
+            span = hi - lo
+            values[name] = default + rng.uniform(-spread, spread) * span
+        return cls.from_dict(values)
+
+    def l1_distance_from_defaults(self) -> float:
+        return sum(
+            abs(getattr(self, name) - self.DEFAULTS[name]) for name in THETA_FIELD_NAMES
+        )
+
     def mutated(
         self,
         rng: Random,
         rate: float = 0.1,
         power: float = 0.05,
+        mode: str = "gaussian",
+        weight_mutate_power_cap: float | None = None,
     ) -> Theta:
-        """Apply small Gaussian perturbations, then clip."""
+        """Apply small perturbations, then clip (and optional power cap)."""
+        if mode == "log_normal":
+            return self._mutated_log_normal(
+                rng, rate=rate, power=power, weight_mutate_power_cap=weight_mutate_power_cap
+            )
+        return self._mutated_gaussian(
+            rng, rate=rate, power=power, weight_mutate_power_cap=weight_mutate_power_cap
+        )
+
+    def mutated_with_config(
+        self, rng: Random, config: ThetaEvolutionConfig
+    ) -> Theta:
+        return self.mutated(
+            rng,
+            rate=config.mutate_rate,
+            power=config.mutate_power,
+            mode=config.mutate_mode,
+            weight_mutate_power_cap=config.weight_mutate_power_cap,
+        )
+
+    def _mutated_gaussian(
+        self,
+        rng: Random,
+        *,
+        rate: float,
+        power: float,
+        weight_mutate_power_cap: float | None,
+    ) -> Theta:
         values = self.to_dict()
         for name in THETA_FIELD_NAMES:
             if rng.random() < rate:
                 values[name] += rng.gauss(0.0, power)
+        return self._finalize_mutation(values, weight_mutate_power_cap)
+
+    def _mutated_log_normal(
+        self,
+        rng: Random,
+        *,
+        rate: float,
+        power: float,
+        weight_mutate_power_cap: float | None,
+    ) -> Theta:
+        values = self.to_dict()
+        for name in THETA_FIELD_NAMES:
+            if rng.random() >= rate:
+                continue
+            lo, hi = self.BOUNDS[name]
+            if name == "weight_mutate_power":
+                values[name] += rng.gauss(0.0, power)
+            else:
+                # Multiplicative step on positive rates/probabilities.
+                scale = math.exp(rng.gauss(0.0, power))
+                base = max(values[name], lo + 1e-9)
+                values[name] = base * scale
+        return self._finalize_mutation(values, weight_mutate_power_cap)
+
+    def _finalize_mutation(
+        self, values: dict[str, float], weight_mutate_power_cap: float | None
+    ) -> Theta:
+        if weight_mutate_power_cap is not None:
+            lo, _ = self.BOUNDS["weight_mutate_power"]
+            values["weight_mutate_power"] = min(
+                values["weight_mutate_power"],
+                max(lo, weight_mutate_power_cap),
+            )
         return Theta.from_dict(values)
 
     @classmethod

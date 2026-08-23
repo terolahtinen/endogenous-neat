@@ -241,18 +241,19 @@
 \end{frame}
 
 \begin{frame}{Mapping meta-outputs $\rightarrow$ $\theta$}
-  Raw network numbers are \emph{not} used as probabilities.
-  Each component $x_i$ is mapped into its legal range $[m_i,M_i]$:
+  Meta-heads already use neat-python's sigmoid, so $x_i\in(0,1)$.
+  Do \emph{not} apply a second sigmoid (that would squash into $\sim[0.5,0.73]$
+  and push $\theta$ into the upper half of each bound).
+  Map linearly into the legal range $[m_i,M_i]$:
   \[
-    \theta_i = m_i + \sigma(x_i)\,(M_i - m_i),\qquad
-    \sigma(x)=\frac{1}{1+e^{-x}}
+    \theta_i = m_i + \mathrm{clamp}(x_i,0,1)\,(M_i - m_i)
   \]
 
   \vspace{0.4em}
   \begin{itemize}
-    \item $x \approx 0$ $\rightarrow$ mid-range of the bound
-    \item large positive $x$ $\rightarrow$ near maximum
-    \item large negative $x$ $\rightarrow$ near minimum
+    \item $x \approx 0$ $\rightarrow$ near minimum
+    \item $x \approx 0.5$ $\rightarrow$ mid-range of the bound
+    \item $x \approx 1$ $\rightarrow$ near maximum
   \end{itemize}
 
   \vspace{0.4em}

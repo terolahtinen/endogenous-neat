@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from random import Random
 from typing import ClassVar
@@ -19,13 +18,14 @@ THETA_FIELD_NAMES: tuple[str, ...] = (
 )
 
 
-def sigmoid(x: float) -> float:
-    """Map a raw network output to (0, 1)."""
-    if x >= 0:
-        z = math.exp(-x)
-        return 1.0 / (1.0 + z)
-    z = math.exp(x)
-    return z / (1.0 + z)
+def _unit_interval(x: float) -> float:
+    """Clamp a value into [0, 1].
+
+    Meta-heads already use neat-python's sigmoid activation, so outputs are in
+    (0, 1). A second sigmoid would squash them into ~[0.5, 0.73] and push θ
+    toward the upper half of each bound (overly aggressive mutation).
+    """
+    return min(1.0, max(0.0, x))
 
 
 @dataclass
@@ -131,7 +131,7 @@ class Theta:
 
     @classmethod
     def from_meta_outputs(cls, raw_outputs: list[float]) -> Theta:
-        """Map averaged meta-outputs to bounded theta via sigmoid."""
+        """Map averaged meta-outputs (already in [0, 1]) linearly into bounds."""
         if len(raw_outputs) != len(THETA_FIELD_NAMES):
             raise ValueError(
                 f"Expected {len(THETA_FIELD_NAMES)} meta-outputs, got {len(raw_outputs)}"
@@ -139,7 +139,7 @@ class Theta:
         values = {}
         for name, raw in zip(THETA_FIELD_NAMES, raw_outputs, strict=True):
             lo, hi = cls.BOUNDS[name]
-            values[name] = lo + sigmoid(raw) * (hi - lo)
+            values[name] = lo + _unit_interval(raw) * (hi - lo)
         return cls.from_dict(values)
 
     def field_names(self) -> tuple[str, ...]:

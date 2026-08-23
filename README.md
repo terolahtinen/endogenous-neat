@@ -204,7 +204,7 @@ pytest tests/ -v
 | Aspect | Standard NEAT | Endogenous NEAT |
 |--------|---------------|-----------------|
 | Mutation rates | Global config λ | Per-genome θ (inherited, mutated) |
-| Meta-outputs | N/A | 8 outputs map to θ via sigmoid (meta-theta mode) |
+| Meta-outputs | N/A | 8 sigmoid outputs mapped linearly into θ bounds (meta-theta mode) |
 | Speciation distance | Topology/weights only | Adds small θ component |
 | Reproduction | External | Still external |
 

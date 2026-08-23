@@ -25,12 +25,21 @@ def test_mutation_preserves_bounds():
 
 
 def test_meta_output_transformation_within_bounds():
-    raw_outputs = [-10.0, -1.0, 0.0, 1.0, 5.0, 10.0, -5.0, 3.0]
+    # Meta-heads are already sigmoid-activated; map [0, 1] linearly into bounds.
+    raw_outputs = [0.0, 0.25, 0.5, 0.75, 1.0, 0.1, 0.9, 0.5]
     theta = Theta.from_meta_outputs(raw_outputs)
-    for name in THETA_FIELD_NAMES:
+    for name, raw in zip(THETA_FIELD_NAMES, raw_outputs, strict=True):
         lo, hi = Theta.BOUNDS[name]
         value = getattr(theta, name)
         assert lo <= value <= hi
+        assert value == pytest.approx(lo + raw * (hi - lo))
+
+
+def test_meta_output_clamps_out_of_range():
+    raw_outputs = [-1.0, 2.0, 0.0, 1.0, 0.5, 0.5, 0.5, 0.5]
+    theta = Theta.from_meta_outputs(raw_outputs)
+    assert theta.node_add_prob == pytest.approx(Theta.BOUNDS["node_add_prob"][0])
+    assert theta.node_delete_prob == pytest.approx(Theta.BOUNDS["node_delete_prob"][1])
 
 
 def test_crossover_within_bounds():

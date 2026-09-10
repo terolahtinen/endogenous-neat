@@ -66,6 +66,10 @@ class EndogenousGenome(neat.DefaultGenome):
 
     def configure_new(self, config):
         super().configure_new(config)
+        initial = getattr(config, "theta_initial", None)
+        if initial is not None:
+            self.theta = initial
+            return
         spread = getattr(config, "theta_init_spread", 0.1)
         self.theta = Theta.randomized(Random(), spread=spread)
 

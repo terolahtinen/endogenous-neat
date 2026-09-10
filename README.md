@@ -19,7 +19,7 @@ This is a **stepping stone** toward full endogenous NEAT, not a self-replicating
 - `Theta` dataclass with bounds, mutation, crossover, and meta-output mapping
 - `EndogenousGenome` extending `neat.DefaultGenome`
 - `EndogenousReproduction` (thin wrapper over `DefaultReproduction`)
-- Tasks: **XOR** (default) and **single-pole balancing**, selected with `--task`
+- Tasks: **XOR**, **single-pole balancing**, and **sum-of-squares** fitting, selected with `--task`
 - Three comparison modes per task (`standard` / `inherited-theta` / `meta-theta`)
 - `--mode compare` overlay plots and solve-rate summary across modes
 - CSV logging, plots, and pytest tests
@@ -91,6 +91,7 @@ Select a task with `--task` (default `xor`). Prefer the unified entry point:
 ```bash
 python -m endogenous_neat.experiment --task xor ...
 python -m endogenous_neat.experiment --task pole ...
+python -m endogenous_neat.experiment --task sum-squares ...
 ```
 
 `python -m endogenous_neat.experiment_xor` still works and defaults to XOR.
@@ -126,9 +127,29 @@ python -m endogenous_neat.experiment --task pole --mode meta-theta --generations
   --output-dir runs/pole/
 ```
 
+### Sum-of-squares (function fitting)
+
+Config: `configs/sum-squares-endogenous.cfg`
+
+- Inputs: **10** (2 continuous \(x_1,x_2 \in [-1,1]\) + 8 normalized current θ)
+- Outputs: 9 (output 0 = fitted value; outputs 1–8 = meta / θ)
+- Target: \(t = (x_1^2 + x_2^2) / 2\) on a fixed \(5\times 5\) grid (25 cases)
+- Fitness: \(F = 25 - \sum(\hat y - t)^2\) (maximize; perfect = 25)
+- Solved when fitness ≥ 24.5
+
+Same matched I/O layout as XOR (10-in / 9-out).
+
+```bash
+python -m endogenous_neat.experiment --task sum-squares --mode standard --generations 100 --runs 1
+python -m endogenous_neat.experiment --task sum-squares --mode compare \
+  --generations 100 --runs 10 --output-dir runs/sos_compare/
+python -m endogenous_neat.experiment --task sum-squares --mode compare-random-lambda \
+  --generations 100 --runs 10 --seed 0 --output-dir runs/sos_random_lambda/
+```
+
 ### Compare modes (standard vs weak endogenous)
 
-Run all three modes with the same settings and write overlay comparison plots. Use a **task-specific** `--output-dir` so XOR and pole runs do not mix:
+Run all three modes with the same settings and write overlay comparison plots. Use a **task-specific** `--output-dir` so tasks do not mix:
 
 ```bash
 python -m endogenous_neat.experiment \
@@ -144,6 +165,13 @@ python -m endogenous_neat.experiment \
   --generations 200 \
   --runs 10 \
   --output-dir runs/pole_compare/
+
+python -m endogenous_neat.experiment \
+  --task sum-squares \
+  --mode compare \
+  --generations 100 \
+  --runs 10 \
+  --output-dir runs/sos_compare/
 ```
 
 This runs `standard`, `inherited-theta`, and `meta-theta`, then writes comparison artifacts under `<output-dir>/comparison/`.
@@ -159,6 +187,23 @@ python -m endogenous_neat.experiment --task pole --compare-only --output-dir run
 | standard vs inherited-theta | Does per-genome θ help vs fixed global λ? |
 | inherited-theta vs meta-theta | Do network meta-output θ updates help or hurt? |
 | standard vs meta-theta | Overall weak endogenous NEAT vs classical NEAT |
+| compare-random-lambda | Can meta-θ recover from a shared bad random λ that standard freezes? |
+
+### Random-λ stress test (standard vs meta-theta)
+
+Each paired run draws one uniform-in-bounds θ vector. **Standard** freezes it as global λ (and θ inputs) for the whole run. **Meta-theta** starts all genomes from the same vector, then may rewrite θ from network meta-outputs after each eval.
+
+```bash
+python -m endogenous_neat.experiment \
+  --task pole \
+  --mode compare-random-lambda \
+  --generations 200 \
+  --runs 20 \
+  --seed 0 \
+  --output-dir runs/pole_random_lambda/
+```
+
+With `--seed`, θ for `run_index` is deterministic (`seed + run_index`), so standard and meta share the same start. `run_meta.txt` records the initial θ fields and L1 distance from defaults; the comparison summary reports whether meta left that start.
 
 ## Output files
 
@@ -173,7 +218,7 @@ Each run writes to `runs/<timestamp>_run<N>_<mode>/` (or under your `--output-di
 | `theta_best.png` | Best θ trajectories |
 | `best_genome.pkl` | Pickled best genome |
 | `summary.txt` | Whether the task was solved and final θ |
-| `run_meta.txt` | task, mode, generations, config |
+| `run_meta.txt` | task, mode, generations, config; random-λ runs also log initial θ |
 
 `--mode compare` / `--compare-only` also write to `<output-dir>/comparison/`:
 

@@ -1,4 +1,19 @@
 runs/
+
+# Experiment slides (sources + LaTeX build products)
+docs/slides*
+docs/*.pdf
+docs/*.aux
+docs/*.log
+docs/*.nav
+docs/*.out
+docs/*.toc
+docs/*.snm
+docs/*.vrb
+docs/*.fls
+docs/*.fdb_latexmk
+docs/*.synctex.gz
+
 .pytest_cache/
 __pycache__/
 *.egg-info/

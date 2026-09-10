@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from types import ModuleType
 
-from endogenous_neat.tasks import pole, xor
+from endogenous_neat.tasks import pole, sum_squares, xor
 
 TASKS = {
     "xor": xor,
     "pole": pole,
+    "sum-squares": sum_squares,
 }
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from collections import defaultdict
+from math import isnan
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -95,11 +96,50 @@ def final_theta_drift_l1(run_dir: Path) -> float | None:
     return final.l1_distance_from_defaults()
 
 
+def load_run_meta(run_dir: Path) -> dict[str, str]:
+    """Parse key=value lines from run_meta.txt if present."""
+    path = run_dir / "run_meta.txt"
+    if not path.exists():
+        return {}
+    meta: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        meta[key.strip()] = value.strip()
+    return meta
+
+
+def initial_theta_from_meta(meta: dict[str, str]) -> Theta | None:
+    """Rebuild θ_rand from run_meta theta_initial_* fields when present."""
+    try:
+        values = {
+            name: float(meta[f"theta_initial_{name}"]) for name in THETA_FIELD_NAMES
+        }
+    except (KeyError, ValueError):
+        return None
+    return Theta.from_dict(values)
+
+
+def final_theta_from_run(run_dir: Path) -> Theta | None:
+    theta_path = run_dir / "theta_best.csv"
+    if not theta_path.exists():
+        return None
+    rows = list(csv.DictReader(theta_path.open()))
+    if not rows:
+        return None
+    return Theta.from_dict(
+        {name: float(rows[-1][name]) for name in THETA_FIELD_NAMES}
+    )
+
+
 def mode_stats(run_dirs: list[Path], fitness_threshold: float = FITNESS_THRESHOLD) -> dict:
     """Compute summary statistics for one mode across runs."""
     final_best: list[float] = []
     solved = 0
     first_solve_gens: list[int] = []
+    initial_l1s: list[float] = []
+    leave_initial_l1s: list[float] = []
 
     for run_dir in run_dirs:
         data = load_fitness_csv(run_dir / "fitness.csv")
@@ -114,6 +154,17 @@ def mode_stats(run_dirs: list[Path], fitness_threshold: float = FITNESS_THRESHOL
                 if value >= fitness_threshold:
                     first_solve_gens.append(gen)
                     break
+
+        meta = load_run_meta(run_dir)
+        if "theta_initial_l1_from_defaults" in meta:
+            try:
+                initial_l1s.append(float(meta["theta_initial_l1_from_defaults"]))
+            except ValueError:
+                pass
+        initial = initial_theta_from_meta(meta)
+        final_theta = final_theta_from_run(run_dir)
+        if initial is not None and final_theta is not None:
+            leave_initial_l1s.append(final_theta.l1_distance(initial))
 
     n = len(final_best)
     drifts = [d for d in (final_theta_drift_l1(run_dir) for run_dir in run_dirs) if d is not None]
@@ -131,6 +182,15 @@ def mode_stats(run_dirs: list[Path], fitness_threshold: float = FITNESS_THRESHOL
         "theta_drift_l1_mean": float(np.mean(drifts)) if drifts else float("nan"),
         "theta_drift_l1_median": float(np.median(drifts)) if drifts else float("nan"),
         "theta_material_drift_runs": material_drift_runs,
+        "theta_initial_l1_mean": (
+            float(np.mean(initial_l1s)) if initial_l1s else float("nan")
+        ),
+        "theta_leave_initial_l1_mean": (
+            float(np.mean(leave_initial_l1s)) if leave_initial_l1s else float("nan")
+        ),
+        "theta_leave_initial_l1_median": (
+            float(np.median(leave_initial_l1s)) if leave_initial_l1s else float("nan")
+        ),
     }
 
 
@@ -245,6 +305,23 @@ def write_comparison_summary(
                     f"{stats['theta_material_drift_runs']}/{stats['n_runs']}",
                 ]
             )
+        if stats["n_runs"] and not isnan(stats["theta_initial_l1_mean"]):
+            lines.append(
+                f"  initial θ L1 from defaults (mean): "
+                f"{stats['theta_initial_l1_mean']:.4f}"
+            )
+        if (
+            mode != "standard"
+            and stats["n_runs"]
+            and not isnan(stats["theta_leave_initial_l1_mean"])
+        ):
+            lines.extend(
+                [
+                    f"  final θ L1 from initial θ_rand (mean / median): "
+                    f"{stats['theta_leave_initial_l1_mean']:.4f} / "
+                    f"{stats['theta_leave_initial_l1_median']:.4f}",
+                ]
+            )
         lines.append("")
 
     lines.extend(
@@ -254,6 +331,8 @@ def write_comparison_summary(
             "standard vs inherited-theta: effect of per-genome theta vs fixed global λ",
             "inherited-theta vs meta-theta: effect of network meta-output theta updates",
             "standard vs meta-theta: overall weak endogenous NEAT vs classical NEAT",
+            "compare-random-lambda: shared uniform θ_rand; standard freezes λ, "
+            "meta may rewrite — does meta recover from a bad random config?",
             "",
             "All modes use the same matched-capacity config "
             "(task outputs + 8 meta outputs).",
@@ -285,6 +364,9 @@ def write_comparison_csv(
         "theta_drift_l1_mean",
         "theta_drift_l1_median",
         "theta_material_drift_runs",
+        "theta_initial_l1_mean",
+        "theta_leave_initial_l1_mean",
+        "theta_leave_initial_l1_median",
     ]
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)

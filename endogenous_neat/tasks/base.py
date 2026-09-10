@@ -10,15 +10,18 @@ NUM_META_OUTPUTS = 8
 NUM_THETA_INPUTS = 8
 
 
-def theta_for_genome(genome) -> Theta:
+def theta_for_genome(genome, fixed_theta: Theta | None = None) -> Theta:
     """Return the theta vector that should be fed as network inputs.
 
     Endogenous genomes use their live ``genome.theta`` (updated by inheritance,
     mutation, and meta rewrite). Standard genomes have no theta attribute, so
-    they receive the fixed config defaults for matched input capacity.
+    they receive ``fixed_theta`` when provided (random-λ experiments), otherwise
+    the fixed config defaults for matched input capacity.
     """
     if isinstance(genome, EndogenousGenome):
         return genome.theta
+    if fixed_theta is not None:
+        return fixed_theta
     return Theta.default()
 
 

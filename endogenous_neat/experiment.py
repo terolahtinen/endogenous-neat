@@ -6,14 +6,19 @@ import argparse
 import pickle
 from datetime import datetime
 from pathlib import Path
+from random import Random
 
 import neat
 
 from endogenous_neat.compare import COMPARE_MODES, compare_runs
+from endogenous_neat.genome import apply_theta_to_config
 from endogenous_neat.logging_utils import ThetaReporter
 from endogenous_neat.reproduction import EndogenousReproduction
 from endogenous_neat.tasks import TASKS, get_task
 from endogenous_neat.tasks.base import genome_type_for_mode
+from endogenous_neat.theta import THETA_FIELD_NAMES, Theta
+
+RANDOM_LAMBDA_MODES = ("standard", "meta-theta")
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,11 +50,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--mode",
-        choices=[*COMPARE_MODES, "compare"],
+        choices=[*COMPARE_MODES, "compare", "compare-random-lambda"],
         default="meta-theta",
         help=(
-            "Experiment mode. Use 'compare' to run all three modes "
-            "(standard, inherited-theta, meta-theta) and write overlay plots."
+            "Experiment mode. Use 'compare' for all three modes; "
+            "'compare-random-lambda' for standard vs meta-theta from a shared "
+            "uniform-in-bounds random θ per run."
         ),
     )
     parser.add_argument(
@@ -61,7 +67,10 @@ def parse_args() -> argparse.Namespace:
         "--seed",
         type=int,
         default=None,
-        help="Optional random seed (requires seed in config or neat support).",
+        help=(
+            "Optional seed. For compare-random-lambda, seeds the θ sampler as "
+            "seed + run_index so standard/meta pairs share the same θ_rand."
+        ),
     )
     parser.add_argument(
         "--compare-only",
@@ -94,6 +103,21 @@ def apply_theta_cli_overrides(config: neat.Config, args: argparse.Namespace) -> 
         genome_config.theta_mutate_mode = args.theta_mutate_mode
 
 
+def sample_theta_for_run(run_index: int, seed: int | None) -> Theta:
+    """Sample uniform-in-bounds θ; deterministic when seed is set."""
+    rng_seed = (0 if seed is None else seed) + run_index
+    return Theta.uniform_random(Random(rng_seed))
+
+
+def format_theta_meta_lines(theta: Theta) -> list[str]:
+    lines = [
+        f"theta_initial_l1_from_defaults={theta.l1_distance_from_defaults():.6f}",
+    ]
+    for name in THETA_FIELD_NAMES:
+        lines.append(f"theta_initial_{name}={getattr(theta, name):.6f}")
+    return lines
+
+
 def run_single(
     config_path: Path,
     generations: int,
@@ -104,6 +128,7 @@ def run_single(
     eval_genomes,
     fitness_threshold: float,
     theta_overrides: argparse.Namespace | None = None,
+    initial_theta: Theta | None = None,
 ) -> neat.DefaultGenome:
     genome_type = genome_type_for_mode(mode)
     reproduction_type = (
@@ -119,6 +144,15 @@ def run_single(
     )
     if theta_overrides is not None:
         apply_theta_cli_overrides(config, theta_overrides)
+
+    if initial_theta is not None:
+        if mode == "standard":
+            # Freeze random λ into the shared genome config for the whole run.
+            config.genome_config = apply_theta_to_config(
+                config.genome_config, initial_theta
+            )
+        else:
+            config.genome_config.theta_initial = initial_theta
 
     population = neat.Population(config)
     theta_reporter = ThetaReporter()
@@ -144,11 +178,16 @@ def run_single(
     with (output_dir / "best_genome.pkl").open("wb") as f:
         pickle.dump(best, f)
 
-    run_meta = output_dir / "run_meta.txt"
-    run_meta.write_text(
-        f"run_index={run_index}\ntask={task_name}\nmode={mode}\n"
-        f"generations={generations}\nconfig={config_path}\n"
-    )
+    meta_lines = [
+        f"run_index={run_index}",
+        f"task={task_name}",
+        f"mode={mode}",
+        f"generations={generations}",
+        f"config={config_path}",
+    ]
+    if initial_theta is not None:
+        meta_lines.extend(format_theta_meta_lines(initial_theta))
+    (output_dir / "run_meta.txt").write_text("\n".join(meta_lines) + "\n")
 
     return best
 
@@ -189,6 +228,49 @@ def run_modes(
     return run_dirs
 
 
+def run_random_lambda_compare(
+    config_path: Path,
+    generations: int,
+    runs: int,
+    base_output: Path,
+    task_name: str,
+    task,
+    seed: int | None,
+    theta_overrides: argparse.Namespace | None = None,
+) -> list[Path]:
+    """Paired standard vs meta-theta from a shared uniform random θ per run_index."""
+    run_dirs: list[Path] = []
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    threshold = task.fitness_threshold()
+
+    for run_index in range(runs):
+        theta_rand = sample_theta_for_run(run_index, seed)
+        for mode in RANDOM_LAMBDA_MODES:
+            fixed_theta = theta_rand if mode == "standard" else None
+            eval_genomes = task.make_eval_genomes(mode, fixed_theta=fixed_theta)
+            run_dir = base_output / f"{timestamp}_run{run_index}_{mode}"
+            run_single(
+                config_path=config_path,
+                generations=generations,
+                mode=mode,
+                output_dir=run_dir,
+                run_index=run_index,
+                task_name=task_name,
+                eval_genomes=eval_genomes,
+                fitness_threshold=threshold,
+                theta_overrides=theta_overrides,
+                initial_theta=theta_rand,
+            )
+            run_dirs.append(run_dir)
+            print(
+                f"[{task_name}/{mode}] Run {run_index + 1}/{runs} "
+                f"(random-λ L1={theta_rand.l1_distance_from_defaults():.3f}) "
+                f"complete: {run_dir}"
+            )
+
+    return run_dirs
+
+
 def main() -> None:
     args = parse_args()
     task = get_task(args.task)
@@ -213,6 +295,23 @@ def main() -> None:
             base_output=base_output,
             task_name=args.task,
             task=task,
+            theta_overrides=args,
+        )
+        comparison_dir = compare_runs(
+            base_output, fitness_threshold=threshold
+        )
+        print(f"Comparison written to: {comparison_dir}")
+        return
+
+    if args.mode == "compare-random-lambda":
+        run_random_lambda_compare(
+            config_path=config_path,
+            generations=args.generations,
+            runs=args.runs,
+            base_output=base_output,
+            task_name=args.task,
+            task=task,
+            seed=args.seed,
             theta_overrides=args,
         )
         comparison_dir = compare_runs(

@@ -59,15 +59,23 @@ def evaluate_xor(
     return fitness, None
 
 
-def make_eval_genomes(mode: str) -> Callable:
-    """Build an eval_genomes callback for the given experiment mode."""
+def make_eval_genomes(
+    mode: str, fixed_theta: Theta | None = None
+) -> Callable:
+    """Build an eval_genomes callback for the given experiment mode.
+
+    ``fixed_theta`` is used as network θ inputs in standard mode (e.g. random-λ
+    experiments). Endogenous modes ignore it and read ``genome.theta``.
+    """
     if mode == "standard":
 
         def eval_genomes(genomes, config):
             for _genome_id, genome in genomes:
                 net = neat.nn.FeedForwardNetwork.create(genome, config)
                 fitness, _ = evaluate_xor(
-                    net, update_meta=False, theta=theta_for_genome(genome)
+                    net,
+                    update_meta=False,
+                    theta=theta_for_genome(genome, fixed_theta=fixed_theta),
                 )
                 genome.fitness = fitness
 

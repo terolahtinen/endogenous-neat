@@ -107,9 +107,24 @@ class Theta:
             values[name] = default + rng.uniform(-spread, spread) * span
         return cls.from_dict(values)
 
+    @classmethod
+    def uniform_random(cls, rng: Random) -> Theta:
+        """Return theta with each field sampled uniformly within its bounds."""
+        values = {}
+        for name in THETA_FIELD_NAMES:
+            lo, hi = cls.BOUNDS[name]
+            values[name] = rng.uniform(lo, hi)
+        return cls.from_dict(values)
+
     def l1_distance_from_defaults(self) -> float:
         return sum(
             abs(getattr(self, name) - self.DEFAULTS[name]) for name in THETA_FIELD_NAMES
+        )
+
+    def l1_distance(self, other: Theta) -> float:
+        return sum(
+            abs(getattr(self, name) - getattr(other, name))
+            for name in THETA_FIELD_NAMES
         )
 
     def mutated(

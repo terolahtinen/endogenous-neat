@@ -120,6 +120,43 @@ def test_meta_theta_eval_sets_genome_theta():
     assert len(genome.theta.to_vector()) == 8
 
 
+def test_meta_theta_ablation_pins_frozen_fields(monkeypatch):
+    """One live field is taken from the meta outputs; the other seven stay at defaults."""
+    config = neat.Config(
+        EndogenousGenome,
+        EndogenousReproduction,
+        neat.DefaultSpeciesSet,
+        neat.DefaultStagnation,
+        str(FIXTURES / "sum_squares_minimal.cfg"),
+    )
+    config.genome_config.innovation_tracker = InnovationTracker()
+    free = "bias_mutate_rate"
+    config.genome_config.theta_free_fields = (free,)
+
+    genome = EndogenousGenome(1)
+    genome.configure_new(config.genome_config)
+    genome.theta = Theta.from_dict(
+        {name: Theta.BOUNDS[name][1] for name in THETA_FIELD_NAMES}
+    )
+
+    def fake_evaluate(_net, update_meta, theta=None):
+        assert update_meta is True
+        assert theta is genome.theta
+        return 22.0, [1.0] * 8
+
+    monkeypatch.setattr(
+        "endogenous_neat.tasks.sum_squares.evaluate_sum_squares", fake_evaluate
+    )
+    make_eval_genomes("meta-theta")([(1, genome)], config)
+
+    assert genome.fitness == pytest.approx(22.0)
+    assert getattr(genome.theta, free) == pytest.approx(Theta.BOUNDS[free][1])
+    for name in THETA_FIELD_NAMES:
+        if name == free:
+            continue
+        assert getattr(genome.theta, name) == pytest.approx(Theta.DEFAULTS[name])
+
+
 def test_standard_eval_sets_fitness():
     config = neat.Config(
         neat.DefaultGenome,

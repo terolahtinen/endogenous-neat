@@ -11,6 +11,7 @@ from endogenous_neat.tasks.base import (
     NUM_META_OUTPUTS,
     TASK_OUTPUT_INDEX,
     apply_meta_theta,
+    apply_random_theta,
     augment_inputs_with_theta,
     genome_type_for_mode,
     theta_for_genome,
@@ -107,12 +108,26 @@ def make_eval_genomes(
                     net, update_meta=True, theta=theta_for_genome(genome)
                 )
                 genome.fitness = fitness
-                apply_meta_theta(genome, mean_meta)
+                apply_meta_theta(genome, mean_meta, config)
+
+        return eval_genomes
+
+    if mode == "random-theta":
+
+        def eval_genomes(genomes, config):
+            for _genome_id, genome in genomes:
+                net = neat.nn.FeedForwardNetwork.create(genome, config)
+                fitness, _ = evaluate_sum_squares(
+                    net, update_meta=False, theta=theta_for_genome(genome)
+                )
+                genome.fitness = fitness
+                apply_random_theta(genome)
 
         return eval_genomes
 
     raise ValueError(
-        f"Unknown mode {mode!r}; expected 'standard', 'inherited-theta', or 'meta-theta'"
+        f"Unknown mode {mode!r}; expected 'standard', 'inherited-theta', "
+        "'meta-theta', or 'random-theta'"
     )
 
 

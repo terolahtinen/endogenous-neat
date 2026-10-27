@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from random import Random
 from typing import ClassVar
@@ -252,3 +253,26 @@ class Theta:
 
     def field_names(self) -> tuple[str, ...]:
         return THETA_FIELD_NAMES
+
+    def with_only(
+        self,
+        free_fields: Iterable[str],
+        baseline: Theta | None = None,
+    ) -> Theta:
+        """Keep ``free_fields`` and pin every other field to ``baseline``.
+
+        ``baseline`` defaults to the hand-tuned λ. Passing every field name
+        returns a copy of ``self``. An unknown name is an error.
+        """
+        free = tuple(free_fields)
+        unknown = [name for name in free if name not in THETA_FIELD_NAMES]
+        if unknown:
+            known = ", ".join(THETA_FIELD_NAMES)
+            raise ValueError(f"Unknown theta fields {unknown}; expected {known}")
+        keep = set(free)
+        base = self.default() if baseline is None else baseline
+        values = {
+            name: getattr(self, name) if name in keep else getattr(base, name)
+            for name in THETA_FIELD_NAMES
+        }
+        return self.from_dict(values)

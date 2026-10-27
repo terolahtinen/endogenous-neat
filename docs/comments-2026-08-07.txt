@@ -1,0 +1,14 @@
+The mutation rate is way too agressiven due to double sigmoind function (slide 25)
+
+The network output is already a sigmoid function, so using sigmoid again (slide 14) leads to too agressive changes.
+
+--> make changes less agressive
+--> fix this, test again, analyse results
+
+More recent history should be weighter higher.
+
+Read about self adaptation 
+
+Covariance matrix adaptation
+
+

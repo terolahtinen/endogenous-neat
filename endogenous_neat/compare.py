@@ -10,10 +10,27 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from endogenous_neat import nk_report
 from endogenous_neat.theta import THETA_FIELD_NAMES, Theta
 
 COMPARE_MODES = ("standard", "inherited-theta", "meta-theta")
+# Comparison arms. Classical NEAT is run twice: known-good config λ, and a
+# frozen uniform-random λ (directory suffix ``standard-random``).
+# ``random-theta`` keeps the meta-theta network and replaces θ with a uniform
+# draw after each evaluation.
+COMPARE_ARMS = (
+    "standard",
+    "standard-random",
+    "inherited-theta",
+    "meta-theta",
+    "random-theta",
+)
 FITNESS_THRESHOLD = 3.9
+
+
+def is_fixed_lambda(mode: str) -> bool:
+    """True for classical NEAT arms, whose λ does not evolve."""
+    return mode == "standard" or mode.startswith("standard-")
 
 
 def load_fitness_csv(path: Path) -> dict[str, list[float]]:
@@ -44,18 +61,24 @@ def load_theta_best_csv(path: Path) -> dict[str, list[float]]:
 
 
 def discover_runs(runs_root: Path) -> dict[str, list[Path]]:
-    """Group run directories under runs_root by mode suffix."""
-    by_mode: dict[str, list[Path]] = {mode: [] for mode in COMPARE_MODES}
+    """Group run directories under runs_root by comparison-arm suffix.
+
+    ``standard-random`` is matched before ``standard`` so a random-λ run is
+    not filed with the known-good arm. ``random-theta`` is its own suffix and
+    is not filed with ``meta-theta``.
+    """
+    by_mode: dict[str, list[Path]] = {mode: [] for mode in COMPARE_ARMS}
     if not runs_root.exists():
         return by_mode
 
+    # Longest suffix first so ``_standard-random`` is not claimed by ``_standard``.
+    suffixes = sorted(COMPARE_ARMS, key=len, reverse=True)
     for path in sorted(runs_root.iterdir()):
-        if not path.is_dir():
+        if not path.is_dir() or not (path / "fitness.csv").exists():
             continue
-        for mode in COMPARE_MODES:
+        for mode in suffixes:
             if path.name.endswith(f"_{mode}"):
-                if (path / "fitness.csv").exists():
-                    by_mode[mode].append(path)
+                by_mode[mode].append(path)
                 break
     return by_mode
 
@@ -198,12 +221,21 @@ def write_comparison_plots(
     by_mode: dict[str, list[Path]],
     output_dir: Path,
     fitness_threshold: float = FITNESS_THRESHOLD,
+    task_name: str | None = None,
+    markers: list[tuple[int, str]] | None = None,
 ) -> None:
-    """Write overlay fitness and theta comparison plots."""
+    """Write overlay fitness and theta comparison plots.
+
+    ``markers`` are ``(generation, label)`` pairs drawn as vertical lines, used
+    for dynamic-nk landscape changes.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
+    task_prefix = f"{task_name}: " if task_name else ""
+    markers = markers or []
 
     fig, ax = plt.subplots(figsize=(9, 5))
-    for mode, run_dirs in by_mode.items():
+    for mode in COMPARE_ARMS:
+        run_dirs = by_mode.get(mode, [])
         if not run_dirs:
             continue
         generations, median, q25, q75 = aggregate_fitness(run_dirs)
@@ -212,12 +244,14 @@ def write_comparison_plots(
         ax.plot(generations, median, label=f"{mode} (median, n={len(run_dirs)})")
         ax.fill_between(generations, q25, q75, alpha=0.2)
 
-    ax.axhline(
-        fitness_threshold, color="gray", linestyle="--", linewidth=1, label="threshold"
-    )
+    if not markers:
+        ax.axhline(
+            fitness_threshold, color="gray", linestyle="--", linewidth=1, label="threshold"
+        )
+    nk_report.draw_markers(ax, markers)
     ax.set_xlabel("generation")
     ax.set_ylabel("best fitness")
-    ax.set_title("Mode comparison: best fitness (median ± IQR)")
+    ax.set_title(f"{task_prefix}best fitness (median ± IQR)")
     ax.legend(fontsize=8)
     fig.tight_layout()
     fig.savefig(output_dir / "compare_fitness.png", dpi=120)
@@ -226,7 +260,7 @@ def write_comparison_plots(
     endogenous = {
         mode: dirs
         for mode, dirs in by_mode.items()
-        if mode != "standard" and dirs
+        if dirs and not is_fixed_lambda(mode)
     }
     if not endogenous:
         return
@@ -257,12 +291,13 @@ def write_comparison_plots(
                 np.percentile(arr, 75, axis=0),
                 alpha=0.2,
             )
+        nk_report.draw_markers(ax, markers, label_axis=False)
         ax.set_title(name, fontsize=9)
         ax.tick_params(labelsize=7)
-        if i == 0:
+        if i == 0 and ax.get_legend_handles_labels()[0]:
             ax.legend(fontsize=7)
 
-    fig.suptitle("Best-genome theta by mode (median ± IQR)")
+    fig.suptitle(f"{task_prefix}best-genome theta by mode (median ± IQR)")
     fig.tight_layout()
     fig.savefig(output_dir / "compare_theta.png", dpi=120)
     plt.close(fig)
@@ -272,17 +307,23 @@ def write_comparison_summary(
     by_mode: dict[str, list[Path]],
     output_dir: Path,
     fitness_threshold: float = FITNESS_THRESHOLD,
+    task_name: str | None = None,
+    extra_lines: list[str] | None = None,
 ) -> Path:
     """Write comparison summary.txt and return its path."""
     output_dir.mkdir(parents=True, exist_ok=True)
     lines = [
         "Endogenous NEAT mode comparison",
         "===============================",
+        f"task: {task_name or 'unspecified'}",
         f"fitness threshold: {fitness_threshold}",
         "",
     ]
+    if extra_lines:
+        lines.extend(extra_lines)
+        lines.append("")
 
-    for mode in COMPARE_MODES:
+    for mode in COMPARE_ARMS:
         run_dirs = by_mode.get(mode, [])
         stats = mode_stats(run_dirs, fitness_threshold=fitness_threshold)
         lines.extend(
@@ -296,7 +337,7 @@ def write_comparison_summary(
                 f"  median first-solve generation: {stats['median_first_solve_gen']}",
             ]
         )
-        if mode != "standard" and stats["n_runs"]:
+        if not is_fixed_lambda(mode) and stats["n_runs"]:
             lines.extend(
                 [
                     f"  theta drift L1 (mean / median): "
@@ -311,7 +352,7 @@ def write_comparison_summary(
                 f"{stats['theta_initial_l1_mean']:.4f}"
             )
         if (
-            mode != "standard"
+            not is_fixed_lambda(mode)
             and stats["n_runs"]
             and not isnan(stats["theta_leave_initial_l1_mean"])
         ):
@@ -328,14 +369,21 @@ def write_comparison_summary(
         [
             "Interpretation",
             "--------------",
+            "standard: classical NEAT frozen at the known-good config λ",
+            "standard-random: classical NEAT frozen at a uniform-random λ "
+            "(one draw per run)",
+            "random-theta: meta-theta network, with θ replaced by a uniform "
+            "draw after each evaluation",
+            "standard vs standard-random: effect of the hand-tuned λ",
             "standard vs inherited-theta: effect of per-genome theta vs fixed global λ",
             "inherited-theta vs meta-theta: effect of network meta-output theta updates",
+            "meta-theta vs random-theta: network-chosen θ updates versus a "
+            "uniform redraw of θ after each evaluation",
             "standard vs meta-theta: overall weak endogenous NEAT vs classical NEAT",
             "compare-random-lambda: shared uniform θ_rand; standard freezes λ, "
             "meta may rewrite — does meta recover from a bad random config?",
             "",
-            "All modes use the same matched-capacity config "
-            "(task outputs + 8 meta outputs).",
+            "All modes use the same matched-capacity config for this task.",
         ]
     )
 
@@ -371,7 +419,7 @@ def write_comparison_csv(
     with path.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        for mode in COMPARE_MODES:
+        for mode in COMPARE_ARMS:
             stats = mode_stats(by_mode.get(mode, []), fitness_threshold=fitness_threshold)
             writer.writerow({"mode": mode, **stats})
     return path
@@ -381,15 +429,35 @@ def compare_runs(
     runs_root: Path,
     output_dir: Path | None = None,
     fitness_threshold: float = FITNESS_THRESHOLD,
+    task_name: str | None = None,
 ) -> Path:
-    """Discover runs under runs_root, write comparison artifacts, return output dir."""
+    """Discover runs under runs_root, write comparison artifacts, return output dir.
+
+    ``fitness_threshold`` and ``task_name`` should come from the task being
+    compared (XOR 3.9, pole 60, sum-squares 24.5, guess-word 0).
+    """
     by_mode = discover_runs(runs_root)
     if output_dir is None:
         output_dir = runs_root / "comparison"
 
+    # Dynamic NK runs carry landscape-change events; mark them on every plot
+    # and add the recovery table to the summary.
+    markers = nk_report.event_markers(by_mode)
+    extra_lines = nk_report.write_nk_report(by_mode, output_dir) if markers else None
+
     write_comparison_plots(
-        by_mode, output_dir, fitness_threshold=fitness_threshold
+        by_mode,
+        output_dir,
+        fitness_threshold=fitness_threshold,
+        task_name=task_name,
+        markers=markers,
     )
-    write_comparison_summary(by_mode, output_dir, fitness_threshold=fitness_threshold)
+    write_comparison_summary(
+        by_mode,
+        output_dir,
+        fitness_threshold=fitness_threshold,
+        task_name=task_name,
+        extra_lines=extra_lines,
+    )
     write_comparison_csv(by_mode, output_dir, fitness_threshold=fitness_threshold)
     return output_dir

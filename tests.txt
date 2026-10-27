@@ -1,0 +1,25 @@
+Tests run for paper. Output is under final_runs/.
+
+--mode compare now launches all five arms, including random-theta.
+The two random-theta lines below are the separate launches used before that change.
+Repeating them into the same directory would add a second random-theta batch.
+
+# 19-character target, 250 generations.
+# Paper uses 20261010_193132 (50 x standard, standard-random, inherited-theta, meta-theta)
+# and 20261013_175303 (50 x random-theta).
+python -m endogenous_neat.experiment --task guess-word --mode compare --generations 250 --runs 50 --output-dir final_runs/guess_word --seed-fill elite --seed 0 --answer 'michael soumen ingo'
+python -m endogenous_neat.experiment --task guess-word --mode random-theta --generations 250 --runs 50 --output-dir final_runs/guess_word --seed-fill elite --seed 0 --answer 'michael soumen ingo'
+
+# Guess-word sufficiency ablation, same target, 250 generations. Batch 20261011_185130 (50 x 9).
+python -m endogenous_neat.experiment --task guess-word --mode meta-theta-ablation --generations 250 --runs 50 --output-dir final_runs/guess_word_ablation_50 --seed-fill elite --answer 'michael soumen ingo'
+
+# 35-character target, 2,000 generations, five arms in one compare launch. Batch 20261020_203504.
+python -m endogenous_neat.experiment --task guess-word --mode compare --generations 2000 --runs 50 --output-dir final_runs/guess_word_evolutionary_2000_50 --seed-fill elite --seed 0 --answer 'evolutionary computing and learning'
+
+# Sum-of-squares, 2,000 generations, 50 runs.
+# Paper uses 20261017_192730 (50 x four arms) and 20261017_192856 (50 x random-theta).
+python -m endogenous_neat.experiment --task sum-squares --config configs/sum-squares-endogenous.cfg --mode compare --generations 2000 --runs 50 --seed 0 --output-dir final_runs/sos_compare_2000_50/
+python -m endogenous_neat.experiment --task sum-squares --config configs/sum-squares-endogenous.cfg --mode random-theta --generations 2000 --runs 50 --seed 0 --output-dir final_runs/sos_compare_2000_50/
+
+# Sum-of-squares sufficiency ablation, nine arms. Batch 20261024_120152.
+python -m endogenous_neat.experiment --task sum-squares --config configs/sum-squares-endogenous.cfg --mode meta-theta-ablation --generations 2000 --runs 50 --seed 0 --output-dir final_runs/sos_ablation_2000_50/

@@ -24,6 +24,30 @@ def apply_theta_to_config(config, theta: Theta):
     return local
 
 
+def theta_from_genome_config(config) -> Theta:
+    """Reconstruct the effective mutation-control vector from a genome config."""
+    values = {}
+    for field_name in THETA_FIELD_NAMES:
+        config_key = Theta.NEAT_CONFIG_KEYS[field_name]
+        values[field_name] = getattr(config, config_key)
+    return Theta.from_dict(values)
+
+
+def pin_frozen_theta(theta: Theta, config) -> Theta:
+    """Pin θ fields that this config keeps off the meta-theta ablation mask.
+
+    ``theta_free_fields is None`` (missing or unset) leaves every field live.
+    A tuple names the fields that stay live; the rest snap back to the
+    hand-tuned defaults. Accepts either a genome config or a full NEAT config.
+    """
+    if hasattr(config, "genome_config"):
+        config = config.genome_config
+    free = getattr(config, "theta_free_fields", None)
+    if free is None:
+        return theta
+    return theta.with_only(free)
+
+
 def sync_node_indexer(config, node_dict) -> None:
     """Advance config.node_indexer past keys already present in node_dict.
 
@@ -69,9 +93,10 @@ class EndogenousGenome(neat.DefaultGenome):
         initial = getattr(config, "theta_initial", None)
         if initial is not None:
             self.theta = initial
-            return
-        spread = getattr(config, "theta_init_spread", 0.1)
-        self.theta = Theta.randomized(Random(), spread=spread)
+        else:
+            spread = getattr(config, "theta_init_spread", 0.1)
+            self.theta = Theta.randomized(Random(), spread=spread)
+        self.theta = pin_frozen_theta(self.theta, config)
 
     def configure_crossover(self, genome1, genome2, config, fitness_criterion=None):
         super().configure_crossover(genome1, genome2, config, fitness_criterion)
@@ -79,9 +104,11 @@ class EndogenousGenome(neat.DefaultGenome):
             self.theta = Theta.crossover(genome1.theta, genome2.theta, Random())
         else:
             self.theta = Theta.default()
+        self.theta = pin_frozen_theta(self.theta, config)
 
     def mutate(self, config):
-        # Use this genome's theta for structural and attribute mutation rates.
+        # Frozen ablation fields are defaults before they set structural rates.
+        self.theta = pin_frozen_theta(self.theta, config)
         local_config = apply_theta_to_config(config, self.theta)
         sync_node_indexer(local_config, self.nodes)
         # Propagate indexer rebinding to the shared population config.
@@ -89,6 +116,7 @@ class EndogenousGenome(neat.DefaultGenome):
         super().mutate(local_config)
         theta_config = ThetaEvolutionConfig.from_genome_config(config)
         self.theta = self.theta.mutated_with_config(Random(), theta_config)
+        self.theta = pin_frozen_theta(self.theta, config)
 
     def distance(self, other, config):
         base = super().distance(other, config)

@@ -6,6 +6,7 @@ import csv
 from pathlib import Path
 
 from endogenous_neat.compare import (
+    COMPARE_ARMS,
     COMPARE_MODES,
     compare_runs,
     discover_runs,
@@ -67,11 +68,19 @@ def test_discover_runs_groups_by_mode(tmp_path: Path):
     for mode in COMPARE_MODES:
         run_dir = tmp_path / f"20260101_120000_run0_{mode}"
         _write_fitness(run_dir / "fitness.csv", [2.0, 2.5, 3.0])
+    random_dir = tmp_path / "20260101_120000_run0_standard-random"
+    _write_fitness(random_dir / "fitness.csv", [1.0, 1.5, 2.0])
+    redraw_dir = tmp_path / "20260101_120000_run0_random-theta"
+    _write_fitness(redraw_dir / "fitness.csv", [1.2, 1.6, 2.1])
 
     by_mode = discover_runs(tmp_path)
-    assert set(by_mode) == set(COMPARE_MODES)
+    assert set(by_mode) == set(COMPARE_ARMS)
     for mode in COMPARE_MODES:
         assert len(by_mode[mode]) == 1
+    assert by_mode["standard-random"] == [random_dir]
+    assert random_dir not in by_mode["standard"]
+    assert by_mode["random-theta"] == [redraw_dir]
+    assert redraw_dir not in by_mode["meta-theta"]
 
 
 def test_mode_stats_solve_rate(tmp_path: Path):
@@ -94,15 +103,20 @@ def test_compare_runs_writes_artifacts(tmp_path: Path):
         if mode != "standard":
             _write_theta_best(run_dir / "theta_best.csv", generations=4)
 
-    out = compare_runs(tmp_path, output_dir=tmp_path / "comparison")
+    out = compare_runs(
+        tmp_path, output_dir=tmp_path / "comparison", task_name="xor"
+    )
     assert (out / "compare_fitness.png").exists()
     assert (out / "compare_theta.png").exists()
     assert (out / "compare_summary.txt").exists()
     assert (out / "compare_stats.csv").exists()
 
     summary = (out / "compare_summary.txt").read_text()
+    assert "task: xor" in summary
     assert "mode: standard" in summary
+    assert "mode: standard-random" in summary
     assert "mode: meta-theta" in summary
+    assert "mode: random-theta" in summary
 
 
 def test_write_comparison_csv_rows(tmp_path: Path):
@@ -111,4 +125,4 @@ def test_write_comparison_csv_rows(tmp_path: Path):
     by_mode = discover_runs(tmp_path)
     csv_path = write_comparison_csv(by_mode, tmp_path / "out")
     rows = list(csv.DictReader(csv_path.open()))
-    assert {row["mode"] for row in rows} == set(COMPARE_MODES)
+    assert {row["mode"] for row in rows} == set(COMPARE_ARMS)

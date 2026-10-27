@@ -4,7 +4,7 @@ from random import Random
 
 import pytest
 
-from endogenous_neat.experiment import sample_theta_for_run
+from endogenous_neat.experiment import format_theta_meta_lines, sample_theta_for_run
 from endogenous_neat.genome import EndogenousGenome, apply_theta_to_config
 from endogenous_neat.tasks.base import theta_for_genome
 from endogenous_neat.theta import THETA_FIELD_NAMES, Theta
@@ -64,3 +64,11 @@ def test_l1_distance_between_thetas():
     a = Theta.default()
     b = Theta.from_dict({**Theta.DEFAULTS, "weight_mutate_power": 2.5})
     assert a.l1_distance(b) == pytest.approx(2.0)
+
+
+def test_format_theta_meta_lines_uses_given_prefix():
+    lines = format_theta_meta_lines(Theta.default(), "theta_final")
+    keys = [line.split("=", 1)[0] for line in lines]
+    assert "theta_final_l1_from_defaults" in keys
+    assert "theta_final_weight_mutate_power" in keys
+    assert all(not key.startswith("theta_initial_") for key in keys)

@@ -1,5 +1,13 @@
 runs/
 
+# Final runs not cited in the paper.
+final_runs/guess_word/20261010_155104_*
+final_runs/guess_word_ablation/
+final_runs/guess_word_random_theta/
+final_runs/guess_word_fox/
+final_runs/guess_word_fox_1000_5/
+final_runs/guess_word_fox_1500_5/
+
 # Experiment slides (sources + LaTeX build products)
 docs/slides*
 docs/*.pdf
@@ -13,6 +21,7 @@ docs/*.vrb
 docs/*.fls
 docs/*.fdb_latexmk
 docs/*.synctex.gz
+paper/
 
 .pytest_cache/
 __pycache__/

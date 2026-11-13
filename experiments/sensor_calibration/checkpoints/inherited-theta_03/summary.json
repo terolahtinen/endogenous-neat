@@ -1,0 +1,14 @@
+{
+  "arm": "inherited-theta",
+  "seed": 3,
+  "evaluations": 120000,
+  "initial": 0.7314363029631452,
+  "fitness": 0.999866184873867,
+  "best_generation": 998,
+  "genome_id": 117670,
+  "train_accuracy": 1.0,
+  "test_fitness": 0.9989707653439391,
+  "test_accuracy": 1.0,
+  "uninformative_accuracy": 0.5,
+  "final_population_mean": 0.7977982472162011
+}

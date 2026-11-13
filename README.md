@@ -2,6 +2,8 @@
 
 A research prototype of **weak endogenous NEAT** (self-adaptive NEAT with endogenous operator-control parameters) built on a local fork of [neat-python](neat-python/).
 
+The [one-example sensor calibration case study](experiments/sensor_calibration/) includes a supplementary report, reproducible comparison of five variants over 1,000 generations, raw trajectories and saved networks.
+
 ## What this is
 
 Classical NEAT evolves topology and weights using fixed mutation parameters λ defined in the config file. Here each genome also carries **theta (θ)** — per-individual mutation-control parameters that are:

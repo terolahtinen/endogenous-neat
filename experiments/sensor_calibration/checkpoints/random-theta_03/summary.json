@@ -1,0 +1,14 @@
+{
+  "arm": "random-theta",
+  "seed": 3,
+  "evaluations": 120000,
+  "initial": 0.7314363029631452,
+  "fitness": 0.7499999994572524,
+  "best_generation": 738,
+  "genome_id": 86998,
+  "train_accuracy": 0.75,
+  "test_fitness": 0.7499970427658038,
+  "test_accuracy": 0.75,
+  "uninformative_accuracy": 0.5,
+  "final_population_mean": 0.6523739351411447
+}

@@ -1,0 +1,14 @@
+{
+  "arm": "standard",
+  "seed": 6,
+  "evaluations": 120000,
+  "initial": 0.7284393771273083,
+  "fitness": 0.7499999994571993,
+  "best_generation": 693,
+  "genome_id": 81667,
+  "train_accuracy": 0.75,
+  "test_fitness": 0.7499970399109177,
+  "test_accuracy": 0.75,
+  "uninformative_accuracy": 0.5,
+  "final_population_mean": 0.6893755670959097
+}
